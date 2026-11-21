@@ -135,15 +135,19 @@ internal sealed class KerberosSecurityProvider : ISpnegoMechanism
                     throw new PlatformNotSupportedException("The Windows logon session is only available on Windows.");
 
                 logger.LogDebug("Kerberos: using the Windows logon session's ticket cache.");
+                // Built before CacheInMemory is cleared: with no cache set, the client falls back to its default
+                // ticket cache file, which it creates (and, on dispose, fails on where that path is not writable).
+                var lsaCache = new LsaCredentialCache(config, LsaInterop.Connect(), loggerFactory);
+                client.Cache = lsaCache;
                 client.CacheInMemory = false;
-                client.Cache = new LsaCredentialCache(config, LsaInterop.Connect(), loggerFactory);
             }
             else if (credential.TicketCachePath is { } cachePath)
             {
                 // The file is only read; the TGT in it replaces the AS exchange, and the service ticket stays in memory.
                 logger.LogDebug("Kerberos: using the ticket-granting ticket in {Path}.", cachePath);
+                var fileCache = new ReadOnlyFileTicketCache(cachePath, loggerFactory);
+                client.Cache = fileCache;
                 client.CacheInMemory = false;
-                client.Cache = new ReadOnlyFileTicketCache(cachePath, loggerFactory);
             }
             else
             {
