@@ -47,8 +47,19 @@ internal static partial class WsmanObjectReader
     private static string ClassNameOf(XElement instance) =>
         instance.Name.LocalName; // xsi:type is "p:Win32_Process_Type", the element name is the class.
 
+    /// <summary>
+    /// The selectors of the endpoint reference itself. A selector of an association's reference key holds an endpoint
+    /// reference of its own, whose selectors are the other instance's keys, not this one's.
+    /// </summary>
     private static IEnumerable<XElement> SelectorElements(XElement epr) =>
-        epr.Descendants().Where(e => e.Name.LocalName == "Selector");
+        epr.Descendants().FirstOrDefault(e => e.Name.LocalName == "SelectorSet")?.Elements()
+            .Where(e => e.Name.LocalName == "Selector") ?? [];
+
+    /// <summary>A selector's value: its text, or the path of the instance when it is a reference.</summary>
+    private static string SelectorValue(XElement selector) =>
+        selector.Descendants().Any(e => e.Name.LocalName == "ReferenceParameters")
+            ? ReferencePath(selector) ?? string.Empty
+            : selector.Value.Trim();
 
     /// <summary>The class an instance element is typed as by its <c>xsi:type</c> (<c>p:Win32_ProcessStartup_Type</c>), if it has one.</summary>
     internal static string? TypeClassOf(XElement element)
@@ -136,7 +147,7 @@ internal static partial class WsmanObjectReader
             return null;
 
         var keys = SelectorElements(element)
-            .Select(s => new KeyValuePair<string, object>((string?)s.Attribute("Name") ?? string.Empty, s.Value.Trim()))
+            .Select(s => new KeyValuePair<string, object>((string?)s.Attribute("Name") ?? string.Empty, SelectorValue(s)))
             .ToList();
         return new CimObjectPath(className, keys).RelativePath;
     }

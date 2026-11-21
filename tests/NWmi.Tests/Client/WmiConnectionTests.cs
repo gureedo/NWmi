@@ -505,4 +505,38 @@ public class WmiConnectionTests
             Assert.Throws<ArgumentException>(() => wmi.ToServerPath("\\\\anything\\root\\default:Win32_Process.Handle=1"));
         }
     }
+
+    [Fact]
+    public async Task Association_queries_are_built_from_the_instance_path_and_the_filters_given()
+    {
+        var (wmi, server) = await ConnectAsync();
+        await using (server)
+        await using (wmi)
+        {
+            Assert.Equal("ASSOCIATORS OF {Win32_Service.Name=\"WinRM\"}",
+                wmi.AssociationQuery("ASSOCIATORS", "\\\\host\\root\\cimv2:Win32_Service.Name='WinRM'"));
+            Assert.Equal(
+                "ASSOCIATORS OF {Win32_Directory.Name=\"C:\\\\Windows\"} WHERE AssocClass = Win32_SubDirectory Role = PartComponent",
+                wmi.AssociationQuery("ASSOCIATORS", "Win32_Directory.Name=\"C:\\\\Windows\"",
+                    ("AssocClass", "Win32_SubDirectory", "a"), ("ResultClass", null, "b"), ("Role", "PartComponent", "c")));
+            Assert.Equal("REFERENCES OF {Win32_OperatingSystem=@} WHERE ResultClass = CIM_Dependency",
+                wmi.AssociationQuery("REFERENCES", "Win32_OperatingSystem=@", ("ResultClass", "CIM_Dependency", "a")));
+        }
+    }
+
+    [Fact]
+    public async Task Association_queries_refuse_a_class_path_and_a_filter_that_is_not_an_identifier()
+    {
+        var (wmi, server) = await ConnectAsync();
+        await using (server)
+        await using (wmi)
+        {
+            Assert.Throws<ArgumentException>(() => wmi.GetAssociatorsAsync("Win32_Service", cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Throws<ArgumentException>(() => wmi.GetReferencesAsync("not a path =", cancellationToken: TestContext.Current.CancellationToken));
+            var ex = Assert.Throws<ArgumentException>(() =>
+                wmi.GetAssociatorsAsync("Win32_Service.Name=\"x\"", resultClass: "Win32_Service Role = x",
+                    cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal("resultClass", ex.ParamName);
+        }
+    }
 }

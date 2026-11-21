@@ -2,6 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NWmi.Auth;
@@ -445,6 +446,67 @@ public sealed class WmiConnection : IAsyncDisposable
             $"Enumerate classes of {superClass ?? "(all)"}",
             stopWhenExhausted: true,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Streams the objects associated with the instance at <paramref name="objectPath"/> (<c>ASSOCIATORS OF</c>): the
+    /// instances at the other end of every association that refers to it. Each filter given narrows the result:
+    /// <paramref name="associationClass"/> to associations of that class or a subclass, <paramref name="resultClass"/> to
+    /// results of that class or a subclass, <paramref name="role"/> to associations that refer to the instance through that
+    /// property, and <paramref name="resultRole"/> to results that the association refers to through that property.
+    /// </summary>
+    /// <remarks>For the other clauses of the WQL statement (<c>ClassDefsOnly</c>, <c>KeysOnly</c>, qualifiers), or for schema queries on a class, run the statement with <see cref="QueryAsync"/>.</remarks>
+    /// <exception cref="ArgumentException"><paramref name="objectPath"/> is not an instance path, or a filter is not a CIM class or property name.</exception>
+    public IAsyncEnumerable<WmiObject> GetAssociatorsAsync(
+        string objectPath, string? associationClass = null, string? resultClass = null, string? role = null,
+        string? resultRole = null, CancellationToken cancellationToken = default) =>
+        QueryAsync(AssociationQuery("ASSOCIATORS", objectPath,
+            ("AssocClass", associationClass, nameof(associationClass)),
+            ("ResultClass", resultClass, nameof(resultClass)),
+            ("Role", role, nameof(role)),
+            ("ResultRole", resultRole, nameof(resultRole))), cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Streams the association instances that refer to the instance at <paramref name="objectPath"/> (<c>REFERENCES OF</c>).
+    /// <paramref name="resultClass"/> keeps only associations of that class or a subclass, and <paramref name="role"/> only
+    /// those that refer to the instance through that property.
+    /// </summary>
+    /// <remarks>As for <see cref="GetAssociatorsAsync"/>, the rest of the WQL statement is available through <see cref="QueryAsync"/>.</remarks>
+    /// <exception cref="ArgumentException"><paramref name="objectPath"/> is not an instance path, or a filter is not a CIM class or property name.</exception>
+    public IAsyncEnumerable<WmiObject> GetReferencesAsync(
+        string objectPath, string? resultClass = null, string? role = null,
+        CancellationToken cancellationToken = default) =>
+        QueryAsync(AssociationQuery("REFERENCES", objectPath,
+            ("ResultClass", resultClass, nameof(resultClass)),
+            ("Role", role, nameof(role))), cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// <c>ASSOCIATORS OF {path} WHERE ...</c> or <c>REFERENCES OF ...</c>. Both transports take the same statement: the
+    /// WinRM listener runs it through WMI's own WQL parser. Filter values are bare identifiers in WQL, so only identifiers
+    /// are let through.
+    /// </summary>
+    internal string AssociationQuery(
+        string verb, string objectPath, params (string Keyword, string? Value, string ParameterName)[] filters)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(objectPath);
+        if (!CimObjectPath.TryParse(ToServerPath(objectPath), out var path) || !path.IsInstance)
+            throw new ArgumentException($"'{objectPath}' is not the path of an instance.", nameof(objectPath));
+
+        var query = new StringBuilder($"{verb} OF {{{path.RelativePath}}}");
+        var where = false;
+        foreach (var (keyword, value, parameterName) in filters)
+        {
+            if (string.IsNullOrEmpty(value))
+                continue;
+
+            if (!IsClassName(value))
+                throw new ArgumentException($"'{value}' is not a CIM class or property name.", parameterName);
+
+            query.Append(where ? " " : " WHERE ").Append(keyword).Append(" = ").Append(value);
+            where = true;
+        }
+
+        return query.ToString();
     }
 
     /// <summary>

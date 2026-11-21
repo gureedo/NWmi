@@ -90,6 +90,15 @@ Console.WriteLine(disk?["FreeSpace"]);
 
 await foreach (var cls in wmi.EnumerateClassesAsync())
     Console.WriteLine(cls.ClassName);
+
+// ASSOCIATORS OF / REFERENCES OF, over DCOM and WinRM alike
+await foreach (var dependency in wmi.GetAssociatorsAsync("Win32_Service.Name=\"WinRM\"",
+                   associationClass: "Win32_DependentService", role: "Dependent"))
+    Console.WriteLine(dependency["Name"]);
+
+await foreach (var link in wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"C:\"",
+                   resultClass: "Win32_LogicalDiskToPartition"))
+    Console.WriteLine(link["Antecedent"]);
 ```
 
 Property values come back as CLR types (`uint`, `ulong`, `bool`, `string`, ...), arrays as `object?[]`, embedded

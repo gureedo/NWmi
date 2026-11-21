@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Xml.Linq;
 using NWmi.Client;
 using NWmi.WinRm;
@@ -45,6 +46,50 @@ public class WsmanObjectReaderTests
             """);
         var obj = WsmanObjectReader.Read(XElement.Parse(Instance), epr, null, null, null);
         Assert.Equal(["Handle"], obj.KeyPropertyNames);
+    }
+
+    [Fact]
+    public void An_association_keyed_by_references_has_only_its_own_keys_and_reads_its_references_as_paths()
+    {
+        const string reference = """
+            <a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address>
+            <a:ReferenceParameters>
+              <w:ResourceURI>http://schemas.microsoft.com/wbem/wsman/1/wmi/root/cimv2/{0}</w:ResourceURI>
+              <w:SelectorSet><w:Selector Name="Name">{1}</w:Selector></w:SelectorSet>
+            </a:ReferenceParameters>
+            """;
+        var group = string.Format(CultureInfo.InvariantCulture, reference, "Win32_ComputerSystem", "W1");
+        var part = string.Format(CultureInfo.InvariantCulture, reference, "Win32_Service", "WinRM");
+        const string ns = """
+            xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+            """;
+        var instance = XElement.Parse($"""
+            <p:Win32_SystemServices xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wmi/root/cimv2/Win32_SystemServices" {ns}>
+              <p:GroupComponent>{group}</p:GroupComponent>
+              <p:PartComponent>{part}</p:PartComponent>
+            </p:Win32_SystemServices>
+            """);
+        var epr = XElement.Parse($"""
+            <a:EndpointReference {ns}>
+              <a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address>
+              <a:ReferenceParameters>
+                <w:ResourceURI>http://schemas.microsoft.com/wbem/wsman/1/wmi/root/cimv2/Win32_SystemServices</w:ResourceURI>
+                <w:SelectorSet>
+                  <w:Selector Name="GroupComponent"><a:EndpointReference>{group}</a:EndpointReference></w:Selector>
+                  <w:Selector Name="PartComponent"><a:EndpointReference>{part}</a:EndpointReference></w:Selector>
+                </w:SelectorSet>
+              </a:ReferenceParameters>
+            </a:EndpointReference>
+            """);
+
+        var obj = WsmanObjectReader.Read(instance, epr, null, "host", @"root\cimv2");
+
+        Assert.Equal(["GroupComponent", "PartComponent"], obj.KeyPropertyNames);
+        Assert.Equal("Win32_ComputerSystem.Name=\"W1\"", obj["GroupComponent"]);
+        Assert.Equal("Win32_Service.Name=\"WinRM\"", obj["PartComponent"]);
+        Assert.Equal(
+            "Win32_SystemServices.GroupComponent=\"Win32_ComputerSystem.Name=\\\"W1\\\"\",PartComponent=\"Win32_Service.Name=\\\"WinRM\\\"\"",
+            obj.RelativePath);
     }
 
     [Fact]
