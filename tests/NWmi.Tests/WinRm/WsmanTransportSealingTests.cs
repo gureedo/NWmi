@@ -1,4 +1,7 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 using NWmi.Auth;
 using NWmi.Rpc;
 using NWmi.WinRm;
@@ -97,4 +100,52 @@ public class WsmanTransportSealingTests
     [InlineData("http://schemas.microsoft.com/wbem/wsman/1/wmi/root/cimv2/Win32_Process/Create", false)]
     public void Only_reads_may_be_sent_twice(string action, bool expected) =>
         Assert.Equal(expected, WsmanClient.IsIdempotent(action));
+
+    [Fact]
+    public void An_encrypted_reply_without_an_encrypted_part_is_rejected() =>
+        Assert.Throws<WsmanException>(() =>
+            WsmanTransport.Unseal(new InvertingProvider(), "--Encrypted Boundary--\r\n"u8.ToArray()));
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(500)]
+    public async Task An_unencrypted_reply_on_a_sealed_session_is_rejected(int status)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/wsman/");
+        listener.Start();
+        var serving = Task.Run(async () =>
+        {
+            // The login: accepted at once, since the fake provider needs no round trip.
+            var login = await listener.GetContextAsync();
+            login.Response.StatusCode = 200;
+            login.Response.Close();
+
+            // The request: answered in the clear, as someone on the path could.
+            var request = await listener.GetContextAsync();
+            request.Response.StatusCode = status;
+            request.Response.ContentType = "application/soap+xml;charset=UTF-8";
+            var body = Encoding.UTF8.GetBytes("<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body/></s:Envelope>");
+            await request.Response.OutputStream.WriteAsync(body);
+            request.Response.Close();
+        }, ct);
+
+        using var transport = new WsmanTransport(new Uri($"http://localhost:{port}/wsman"),
+            (_, _) => Task.FromResult<IRpcSecurityProvider>(new InvertingProvider()), TimeSpan.FromSeconds(10),
+            NullLogger.Instance);
+        await transport.ConnectAsync(ct);
+
+        var ex = await Assert.ThrowsAsync<WsmanException>(() => transport.SendAsync("<request/>", idempotent: false, ct));
+        Assert.Contains("encrypted", ex.Message, StringComparison.Ordinal);
+        await serving;
+    }
+
+    private static int FreePort()
+    {
+        using var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        return ((IPEndPoint)probe.LocalEndpoint).Port;
+    }
 }

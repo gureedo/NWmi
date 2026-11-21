@@ -185,7 +185,8 @@ public class ReviewFixTests
 
     /// <summary>
     /// Records what the server sends for an inherited default. <c>NWMI_TEST_INHERIT=1</c> needs, in <c>root\default</c>, a class
-    /// <c>NWmiBase</c> with key <c>Id</c> and a string <c>Color</c> defaulting to <c>blue</c>, a subclass <c>NWmiDerived</c>, and its instance
+    /// <c>NWmiBase</c> with key <c>Id</c>, a string <c>Color</c> defaulting to <c>blue</c>, a uint32 <c>Count</c> defaulting to 7,
+    /// a string array <c>Tags</c> defaulting to <c>{"a", "b"}</c> and a string <c>NoDefault</c> with no default, a subclass <c>NWmiDerived</c>, and its instance
     /// <c>one</c> with <c>Color</c> left alone.
     /// </summary>
     [IntegrationFact]
@@ -429,53 +430,6 @@ public class ReviewFixTests
         }
     }
 
-    /// <summary>
-    /// <c>NWMI_TEST_RESTART_WINRM=1</c> restarts the WinRM service under a session, which drops its connection for certain, then calls a
-    /// method. The method appends one line to a file, so its size shows whether it ran once.
-    /// </summary>
-    [IntegrationFact]
-    public async Task A_method_call_after_the_listener_dropped_the_connection_runs_exactly_once()
-    {
-        if (Environment.GetEnvironmentVariable("NWMI_TEST_RESTART_WINRM") != "1")
-            Assert.Skip("Set NWMI_TEST_RESTART_WINRM=1 to restart the WinRM service on the host.");
-
-        await RequireWinRmAsync();
-        const string File = @"C:\Windows\Temp\nwmi-once.txt";
-        var filePath = $"CIM_DataFile.Name=\"{File.Replace(@"\", @"\\", StringComparison.Ordinal)}\"";
-        var token = TestContext.Current.CancellationToken;
-        await using var dcom = await ConnectAsync(new WmiConnectionOptions());
-        await using var wmi = await ConnectWinRmAsync(@"root\cimv2");
-        Assert.Equal(1, await OneRowAsync(wmi));
-
-        async Task SetServiceAsync(string method, string state)
-        {
-            await dcom.InvokeMethodAsync("Win32_Service.Name=\"WinRM\"", method, cancellationToken: token);
-            for (var i = 0; i < 60 && (string?)(await dcom.GetObjectAsync("Win32_Service.Name=\"WinRM\""))!["State"] != state; i++)
-                await Task.Delay(500, token);
-        }
-
-        await SetServiceAsync("StopService", "Stopped");
-        await SetServiceAsync("StartService", "Running");
-        await Task.Delay(3000, token);
-
-        try
-        {
-            var result = await wmi.InvokeMethodAsync("Win32_Process", "Create",
-                new Dictionary<string, object?> { ["CommandLine"] = $"cmd.exe /c echo x>>{File}" }, cancellationToken: token);
-            Report($"#4 method after the service restart returned {result?["ReturnValue"]}");
-            Assert.Equal(0, Convert.ToInt32(result!["ReturnValue"], CultureInfo.InvariantCulture));
-
-            await Task.Delay(3000, token);
-            var written = (await dcom.GetObjectAsync(filePath))!;
-            Report($"#4 the file holds {written["FileSize"]} bytes; one run writes 3");
-            Assert.Equal(3ul, Convert.ToUInt64(written["FileSize"], CultureInfo.InvariantCulture));
-        }
-        finally
-        {
-            await dcom.InvokeMethodAsync(filePath, "Delete", cancellationToken: CancellationToken.None);
-        }
-    }
-
     private static Task<WmiConnection> ConnectWinRmAsync(string ns) =>
         WmiConnection.ConnectWinRmAsync(
             IntegrationSettings.Host!,
@@ -526,4 +480,59 @@ public class ReviewFixTests
         Report($"#4 method after {seconds} s idle returned {result?["ReturnValue"]}");
         Assert.Equal(0, Convert.ToInt32(result!["ReturnValue"], CultureInfo.InvariantCulture));
     }
+
+    /// <summary>The service restart drops every WinRM connection on the host, so it runs on its own, after the other tests.</summary>
+    [Collection(nameof(ServiceRestart))]
+    public class ServiceRestart
+    {
+        /// <summary>
+        /// <c>NWMI_TEST_RESTART_WINRM=1</c> restarts the WinRM service under a session, which drops its connection for certain, then calls a
+        /// method. The method appends one line to a file, so its size shows whether it ran once.
+        /// </summary>
+        [IntegrationFact]
+        public async Task A_method_call_after_the_listener_dropped_the_connection_runs_exactly_once()
+        {
+            if (Environment.GetEnvironmentVariable("NWMI_TEST_RESTART_WINRM") != "1")
+                Assert.Skip("Set NWMI_TEST_RESTART_WINRM=1 to restart the WinRM service on the host.");
+
+            await RequireWinRmAsync();
+            const string File = @"C:\Windows\Temp\nwmi-once.txt";
+            var filePath = $"CIM_DataFile.Name=\"{File.Replace(@"\", @"\\", StringComparison.Ordinal)}\"";
+            var token = TestContext.Current.CancellationToken;
+            await using var dcom = await ConnectAsync(new WmiConnectionOptions());
+            await using var wmi = await ConnectWinRmAsync(@"root\cimv2");
+            Assert.Equal(1, await OneRowAsync(wmi));
+
+            async Task SetServiceAsync(string method, string state)
+            {
+                await dcom.InvokeMethodAsync("Win32_Service.Name=\"WinRM\"", method, cancellationToken: token);
+                for (var i = 0; i < 60 && (string?)(await dcom.GetObjectAsync("Win32_Service.Name=\"WinRM\""))!["State"] != state; i++)
+                    await Task.Delay(500, token);
+            }
+
+            await SetServiceAsync("StopService", "Stopped");
+            await SetServiceAsync("StartService", "Running");
+            await Task.Delay(3000, token);
+
+            try
+            {
+                var result = await wmi.InvokeMethodAsync("Win32_Process", "Create",
+                    new Dictionary<string, object?> { ["CommandLine"] = $"cmd.exe /c echo x>>{File}" }, cancellationToken: token);
+                Report($"#4 method after the service restart returned {result?["ReturnValue"]}");
+                Assert.Equal(0, Convert.ToInt32(result!["ReturnValue"], CultureInfo.InvariantCulture));
+
+                await Task.Delay(3000, token);
+                var written = (await dcom.GetObjectAsync(filePath))!;
+                Report($"#4 the file holds {written["FileSize"]} bytes; one run writes 3");
+                Assert.Equal(3ul, Convert.ToUInt64(written["FileSize"], CultureInfo.InvariantCulture));
+            }
+            finally
+            {
+                await dcom.InvokeMethodAsync(filePath, "Delete", cancellationToken: CancellationToken.None);
+            }
+        }
+    }
 }
+
+[CollectionDefinition(nameof(ReviewFixTests.ServiceRestart), DisableParallelization = true)]
+public sealed class ServiceRestartRunsAlone;

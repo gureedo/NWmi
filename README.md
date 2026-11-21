@@ -23,7 +23,7 @@ await foreach (var os in wmi.QueryAsync("SELECT Caption, Version FROM Win32_Oper
 - **Events:** event queries, delivered by polling
 - **Refreshers:** register performance objects once and re-read them all with one call
 - **Two transports:** DCOM over TCP (port 135 plus the dynamic RPC range) or WinRM (5985/5986)
-- **Authentication:** NTLMv2 (password or NT hash), Kerberos (password, ticket cache or the Windows logon session)
+- **Authentication:** NTLMv2 (password), Kerberos (password, ticket cache or the Windows logon session)
   and SPNEGO, which negotiates between the two
 - **Encryption:** packet privacy by default over DCOM; sealed messages or HTTPS over WinRM
 - **A command-line tool**, `nwmi`, with text, JSON and JSON Lines output
@@ -167,6 +167,7 @@ nwmi -h HOST -u [DOMAIN\]USER -p PASSWORD [-n NAMESPACE] [-o text|json|jsonl] "W
 | `--logon-session` | Windows only: use the current domain logon |
 | `--realm`, `--kdc`, `--spn`, `--dns` | override the realm, KDC address, service principal name and DNS server |
 | `--winrm`, `--winrm-https` | connect over WinRM (5985) or WinRM over HTTPS (5986) instead of DCOM |
+| `--insecure` | with `--winrm-https`: accept any server certificate (self-signed or wrong name) |
 | `-v`, `--verbose` | log each step to stderr |
 | `--help`, `-?` | show help (`-h` is the host) |
 

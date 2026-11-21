@@ -150,14 +150,34 @@ public class CliAppTests
     }
 
     [Fact]
-    public async Task Winrm_https_implies_winrm_over_HTTPS_without_certificate_checks()
+    public async Task Winrm_https_implies_winrm_over_HTTPS_and_checks_the_certificate()
     {
         var connector = new RecordingConnector();
         await RunAsync(connector, "-h", "server01", "-u", "a", "-p", "b", "--winrm-https", "SELECT 1");
 
         Assert.Equal("winrm", connector.Method);
         Assert.True(connector.Options!.WinRmUseHttps);
-        Assert.True(connector.Options.WinRmIgnoreCertificateErrors);
+        Assert.False(connector.Options.WinRmIgnoreCertificateErrors);
+    }
+
+    [Fact]
+    public async Task Insecure_turns_off_the_certificate_check_for_winrm_https()
+    {
+        var connector = new RecordingConnector();
+        await RunAsync(connector, "-h", "server01", "-u", "a", "-p", "b", "--winrm-https", "--insecure", "SELECT 1");
+
+        Assert.True(connector.Options!.WinRmIgnoreCertificateErrors);
+    }
+
+    [Fact]
+    public async Task Insecure_without_winrm_https_is_refused()
+    {
+        var connector = new RecordingConnector();
+        var result = await RunAsync(connector, "-h", "server01", "-u", "a", "-p", "b", "--insecure", "SELECT 1");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Null(connector.Method);
+        Assert.Contains("--insecure", result.Stderr, StringComparison.Ordinal);
     }
 
     [Fact]

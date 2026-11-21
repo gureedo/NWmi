@@ -105,13 +105,13 @@ public sealed class WmiConnection : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(credential);
         ArgumentNullException.ThrowIfNull(spnego);
-        spnego.LoggerFactory ??= options?.LoggerFactory;
+        var settings = spnego.Copy(options?.LoggerFactory);
+        settings.Ntlm ??= new NtlmSecurityOptions();
         return ConnectWinRmCoreAsync(host,
             async (binding, ct) =>
             {
-                spnego.Ntlm ??= new NtlmSecurityOptions();
-                spnego.Ntlm.ChannelBindings = binding;
-                return await SpnegoSecurityProvider.CreateAsync(host, credential, spnego, ct).ConfigureAwait(false);
+                settings.Ntlm.ChannelBindings = binding;
+                return await SpnegoSecurityProvider.CreateAsync(host, credential, settings, ct).ConfigureAwait(false);
             },
             options, cancellationToken);
     }
@@ -266,7 +266,7 @@ public sealed class WmiConnection : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(credential);
         ArgumentNullException.ThrowIfNull(spnego);
         options ??= new WmiConnectionOptions();
-        spnego.LoggerFactory ??= options.LoggerFactory;
+        spnego = spnego.Copy(options.LoggerFactory);
         var logger = spnego.LoggerFactory?.CreateLogger<SpnegoSecurityProvider>();
         var target = await KerberosDiscovery
             .ResolveAsync(host, credential.Realm, needKdc: !credential.UsesLogonSession, spnego, cancellationToken,
@@ -304,8 +304,8 @@ public sealed class WmiConnection : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(spnego);
         options ??= new WmiConnectionOptions();
         Log(options, $"Connecting to {host} as {credential.Domain}\\{credential.UserName} with SPNEGO.");
-        spnego.LoggerFactory ??= options.LoggerFactory;
-        var provider = await SpnegoSecurityProvider.CreateAsync(host, credential, spnego, cancellationToken)
+        var provider = await SpnegoSecurityProvider
+            .CreateAsync(host, credential, spnego.Copy(options.LoggerFactory), cancellationToken)
             .ConfigureAwait(false);
         return await ConnectWithSecurityAsync(host, provider, options, cancellationToken).ConfigureAwait(false);
     }

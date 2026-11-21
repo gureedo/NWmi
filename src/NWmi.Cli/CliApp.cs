@@ -106,7 +106,12 @@ internal static class CliApp
                 "connect over WinRM (HTTP 5985, NTLM; Kerberos with --negotiate) instead of DCOM; needs --user and --password"
         };
         var winrmHttpsOption = new Option<bool>("--winrm-https")
-            { Description = "like --winrm, over HTTPS (5986); the server certificate is not checked" };
+            { Description = "like --winrm, over HTTPS (5986)" };
+        var insecureOption = new Option<bool>("--insecure")
+        {
+            Description =
+                "with --winrm-https: accept any server certificate (self-signed, wrong name); the connection is then open to interception"
+        };
         var contextOption = new Option<string[]>("--context", "-c")
         {
             Description =
@@ -142,6 +147,7 @@ internal static class CliApp
 
         root.Options.Add(winrmOption);
         root.Options.Add(winrmHttpsOption);
+        root.Options.Add(insecureOption);
         root.Options.Add(new HelpOption("--help", "-?"));
 
         root.SetAction(async (parseResult, cancellationToken) =>
@@ -163,7 +169,11 @@ internal static class CliApp
 
                 var winRmHttps = parseResult.GetValue(winrmHttpsOption);
                 options.WinRmUseHttps = winRmHttps;
-                options.WinRmIgnoreCertificateErrors = winRmHttps;
+                var insecure = parseResult.GetValue(insecureOption);
+                if (insecure && !winRmHttps)
+                    throw new ArgumentException("--insecure only applies to --winrm-https.");
+
+                options.WinRmIgnoreCertificateErrors = insecure;
                 var host = parseResult.GetRequiredValue(hostOption);
                 var account = parseResult.GetValue(userOption);
                 var password = parseResult.GetValue(passwordOption);

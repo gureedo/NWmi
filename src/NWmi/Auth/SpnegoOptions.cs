@@ -35,4 +35,16 @@ public sealed class SpnegoOptions
 
     /// <summary>Where the negotiation's diagnostic messages (and Kerberos.NET's) are logged. Defaults to no logging.</summary>
     public ILoggerFactory? LoggerFactory { get; set; }
+
+    /// <summary>A copy to fill in for one connection, so the caller's instance can be shared between connections.</summary>
+    internal SpnegoOptions Copy(ILoggerFactory? fallbackLoggerFactory) => new()
+    {
+        Realm = Realm,
+        KdcHost = KdcHost,
+        KdcPort = KdcPort,
+        ServicePrincipalName = ServicePrincipalName,
+        DnsServers = DnsServers,
+        Ntlm = Ntlm?.Copy(),
+        LoggerFactory = LoggerFactory ?? fallbackLoggerFactory,
+    };
 }

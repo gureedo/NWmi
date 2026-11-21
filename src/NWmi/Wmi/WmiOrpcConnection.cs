@@ -17,6 +17,7 @@ internal sealed class WmiOrpcConnection : IAsyncDisposable
     private readonly ExporterLease _lease;
     private readonly RpcPresentationContext _context;
     private readonly TrackedInterfaceReference _reference;
+    private int _disposed;
 
     private WmiOrpcConnection(
         ExporterLease lease,
@@ -297,6 +298,10 @@ internal sealed class WmiOrpcConnection : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // The lease is shared with sibling connections, so it must be released exactly once.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         await _reference.DisposeAsync().ConfigureAwait(false);
         await _lease.ReleaseAsync().ConfigureAwait(false);
     }

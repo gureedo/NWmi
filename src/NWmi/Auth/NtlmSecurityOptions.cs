@@ -20,4 +20,6 @@ public sealed class NtlmSecurityOptions
 
     /// <summary>Source of the client FILETIME, used when the server sends no timestamp. Null uses the current time. For tests.</summary>
     internal Func<ulong>? Timestamp { get; set; }
+
+    internal NtlmSecurityOptions Copy() => (NtlmSecurityOptions)MemberwiseClone();
 }

@@ -21,6 +21,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
     private readonly string _namespacePath;
     private readonly uint _batchSize;
     private readonly Lease _lease;
+    private int _disposed;
 
     private readonly ConcurrentDictionary<string, Task<WsmanClassSchema?>> _schemas =
         new(StringComparer.OrdinalIgnoreCase);
@@ -165,7 +166,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
                     new XElement(Wsman.Enumeration + "EnumerationContext", context)),
                 CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is WsmanException or WmiException or HttpRequestException)
+        catch (Exception ex) when (IsBestEffortFailure(ex))
         {
             // Releasing is courtesy; the server drops the context when it times out.
         }
@@ -205,6 +206,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
                        ?? throw new WsmanException("The Subscribe reply has no SubscribeResponse.");
         var context = response.Descendants(Wsman.Enumeration + "EnumerationContext").FirstOrDefault()?.Value.Trim()
                       ?? throw new WsmanException("The Subscribe reply names no enumeration context.");
+        var subscription = SubscriptionHeaders(response);
         try
         {
             while (true)
@@ -244,14 +246,40 @@ internal sealed class WinRmBackend : IAsyncDisposable
             try
             {
                 await _client.CallAsync(uri, Wsman.ActionUnsubscribe, null,
-                    new XElement(Wsman.Eventing + "Unsubscribe"), CancellationToken.None).ConfigureAwait(false);
+                        new XElement(Wsman.Eventing + "Unsubscribe"), CancellationToken.None,
+                        extraHeaders: subscription)
+                    .ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is WsmanException or WmiException or HttpRequestException)
+            catch (Exception ex) when (IsBestEffortFailure(ex))
             {
                 // Best effort, as for Release.
             }
         }
     }
+
+    /// <summary>
+    /// The headers that address the subscription in an Unsubscribe: the reference properties and parameters of the reply's
+    /// SubscriptionManager, which WS-Addressing (2004/08) sends back as headers, chiefly its <c>e:Identifier</c>. Windows
+    /// puts them in <c>ReferenceProperties</c>. The resource URI among them is already in every request's header.
+    /// </summary>
+    internal static List<XElement> SubscriptionHeaders(XElement subscribeResponse)
+    {
+        var manager = subscribeResponse.Element(Wsman.Eventing + "SubscriptionManager");
+        if (manager is null)
+            return [];
+
+        return
+        [
+            .. manager.Elements(Wsman.Addressing + "ReferenceProperties")
+                .Concat(manager.Elements(Wsman.Addressing + "ReferenceParameters"))
+                .SelectMany(e => e.Elements())
+                .Where(e => e.Name != Wsman.Man + "ResourceURI"),
+        ];
+    }
+
+    /// <summary>A cleanup request that failed in a way not worth reporting; an HTTP timeout surfaces as a cancellation.</summary>
+    private static bool IsBestEffortFailure(Exception ex) =>
+        ex is WsmanException or WmiException or HttpRequestException or OperationCanceledException;
 
     public async Task PutInstanceAsync(WmiObject instance, WbemChangeFlags flags, CancellationToken cancellationToken)
     {
@@ -332,8 +360,20 @@ internal sealed class WinRmBackend : IAsyncDisposable
     private const string CimXmlResource = "http://schemas.dmtf.org/wbem/cim-xml/2/cim-schema/2/*";
 
     /// <summary>The class's property and parameter types, fetched once; null when the listener does not give the class.</summary>
-    private Task<WsmanClassSchema?> SchemaAsync(string className) =>
-        _schemas.GetOrAdd(className, FetchSchemaAsync);
+    private async Task<WsmanClassSchema?> SchemaAsync(string className)
+    {
+        var fetch = _schemas.GetOrAdd(className, FetchSchemaAsync);
+        try
+        {
+            return await fetch.ConfigureAwait(false);
+        }
+        catch
+        {
+            // A transport failure (a dropped connection, a timeout) says nothing about the class: try again next time.
+            _schemas.TryRemove(new KeyValuePair<string, Task<WsmanClassSchema?>>(className, fetch));
+            throw;
+        }
+    }
 
     private async Task<WsmanClassSchema?> FetchSchemaAsync(string className)
     {
@@ -525,7 +565,12 @@ internal sealed class WinRmBackend : IAsyncDisposable
     private static List<KeyValuePair<string, string>> Selectors(CimObjectPath path) =>
         [.. path.Keys.Select(k => new KeyValuePair<string, string>(k.Key, WsmanClient.Format(k.Value)))];
 
-    public async ValueTask DisposeAsync() => await _lease.ReleaseAsync().ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        // The lease is shared with the namespaces opened from this one, so it must be released exactly once.
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            await _lease.ReleaseAsync().ConfigureAwait(false);
+    }
 
     /// <summary>The namespaces opened from one connection share its HTTP session, which closes with the last of them.</summary>
     private sealed class Lease(WsmanTransport transport)

@@ -1,5 +1,8 @@
 using NWmi.Auth;
 using NWmi.Client;
+using System.Xml.Linq;
+using Microsoft.Extensions.Logging.Abstractions;
+using NWmi.WinRm;
 using NWmi.Wmi;
 
 namespace NWmi.IntegrationTests;
@@ -248,5 +251,53 @@ public class WinRmTests
             .ToListAsync();
         Assert.NotEmpty(adapters);
         Assert.All(adapters.Where(a => a["DNSServerSearchOrder"] is not null), a => Assert.IsType<object?[]>(a["DNSServerSearchOrder"]));
+    }
+
+    [IntegrationFact]
+    public async Task Unsubscribe_with_the_subscription_identifier_ends_the_subscription()
+    {
+        await IntegrationSettings.RequireWinRmAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var credential = Credential.Parse(IntegrationSettings.User!, IntegrationSettings.Password!);
+        using var transport = new WsmanTransport(new Uri($"http://{IntegrationSettings.Host}:5985/wsman"),
+            (binding, _) => Task.FromResult<IRpcSecurityProvider>(
+                new NtlmSecurityProvider(credential, new NtlmSecurityOptions { ChannelBindings = binding })),
+            TimeSpan.FromSeconds(60), NullLogger.Instance);
+        await transport.ConnectAsync(ct);
+        var client = new WsmanClient(transport, @"root\cimv2", TimeSpan.FromSeconds(30));
+        var uri = client.ResourceUri("*");
+
+        async Task<(XElement Response, string Context)> SubscribeAsync()
+        {
+            var body = await client.CallAsync(uri, Wsman.ActionSubscribe, null,
+                new XElement(Wsman.Eventing + "Subscribe",
+                    new XElement(Wsman.Eventing + "Delivery",
+                        new XAttribute("Mode", "http://schemas.dmtf.org/wbem/wsman/1/wsman/Pull")),
+                    new XElement(Wsman.Man + "Filter", new XAttribute("Dialect", Wsman.WqlDialect),
+                        "SELECT * FROM __InstanceCreationEvent WITHIN 5 WHERE TargetInstance ISA 'Win32_Process'")), ct);
+            var response = body.Element(Wsman.Eventing + "SubscribeResponse")!;
+            return (response, response.Descendants(Wsman.Enumeration + "EnumerationContext").First().Value.Trim());
+        }
+
+        Task<XElement> PullAsync(string context) => client.CallAsync(uri, Wsman.ActionPull, null,
+            new XElement(Wsman.Enumeration + "Pull",
+                new XElement(Wsman.Enumeration + "EnumerationContext", context),
+                new XElement(Wsman.Enumeration + "MaxElements", 1)), ct, TimeSpan.FromSeconds(1));
+
+        var (response, context) = await SubscribeAsync();
+        var headers = WinRmBackend.SubscriptionHeaders(response);
+        Assert.True(headers.Count > 0, $"No reference parameters in: {response}");
+
+        // Without the identifier the listener cannot tell which subscription is meant.
+        await Assert.ThrowsAnyAsync<Exception>(() => client.CallAsync(uri, Wsman.ActionUnsubscribe, null,
+            new XElement(Wsman.Eventing + "Unsubscribe"), ct));
+
+        await client.CallAsync(uri, Wsman.ActionUnsubscribe, null, new XElement(Wsman.Eventing + "Unsubscribe"), ct,
+            extraHeaders: headers);
+
+        // The subscription is gone: its context no longer pulls (a live one would time out quietly instead).
+        var pulled = await Record.ExceptionAsync(() => PullAsync(context));
+        Assert.NotNull(pulled);
+        Assert.IsNotType<WsmanTimedOutException>(pulled);
     }
 }

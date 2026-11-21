@@ -56,7 +56,7 @@ internal sealed class WsmanClient(WsmanTransport transport, string namespacePath
     public async Task<XElement> CallAsync(
         string resourceUri, string action, IEnumerable<KeyValuePair<string, string>>? selectors, XElement? body,
         CancellationToken cancellationToken, TimeSpan? timeout = null,
-        IEnumerable<WsmanOption>? options = null)
+        IEnumerable<WsmanOption>? options = null, IEnumerable<XElement>? extraHeaders = null)
     {
         var header = new XElement(Wsman.Soap + "Header",
             new XElement(Wsman.Addressing + "To", transport.Endpoint.AbsoluteUri),
@@ -85,6 +85,9 @@ internal sealed class WsmanClient(WsmanTransport transport, string namespacePath
                 new XAttribute(XNamespace.Xmlns + "xs", "http://www.w3.org/2001/XMLSchema"),
                 optionList.Select(o => new XElement(Wsman.Man + "Option",
                     new XAttribute("Name", o.Name), new XAttribute("Type", o.Type), o.Value))));
+
+        if (extraHeaders is not null)
+            header.Add(extraHeaders.Select(h => new XElement(h)));
 
         var envelope = new XElement(Wsman.Soap + "Envelope",
             new XAttribute(XNamespace.Xmlns + "s", Wsman.Soap),

@@ -222,9 +222,15 @@ internal sealed class WsmanTransport : IDisposable
         if (response.StatusCode == HttpStatusCode.Unauthorized)
             throw new WsmanAuthenticationRequiredException();
 
-        var text = IsEncryptedMediaType(response.Content.Headers.ContentType?.MediaType)
-            ? Encoding.UTF8.GetString(Unseal(session, payload))
-            : Encoding.UTF8.GetString(payload);
+        string text;
+        if (IsEncryptedMediaType(response.Content.Headers.ContentType?.MediaType))
+            text = Encoding.UTF8.GetString(Unseal(session, payload));
+        else if (SealMessages)
+            throw new WsmanException(response.IsSuccessStatusCode
+                ? "The WinRM listener sent an unencrypted reply on an encrypted session."
+                : $"WinRM returned HTTP {(int)response.StatusCode} without an encrypted body.");
+        else
+            text = Encoding.UTF8.GetString(payload);
 
         if (!response.IsSuccessStatusCode)
             // A SOAP fault travels with status 500 (or 400); the caller turns the fault into an exception.
@@ -275,11 +281,14 @@ internal sealed class WsmanTransport : IDisposable
         using var output = new MemoryStream();
         var span = payload.AsSpan();
         var position = 0;
+        var parts = 0;
         while (true)
         {
             var found = span[position..].IndexOf(marker);
             if (found < 0)
                 break;
+
+            parts++;
 
             var start = position + found + marker.Length;
             var end = span[start..].IndexOf(boundary);
@@ -298,6 +307,9 @@ internal sealed class WsmanTransport : IDisposable
             output.Write(data);
             position = partEnd;
         }
+
+        if (parts == 0)
+            throw new WsmanException("The encrypted WinRM reply holds no encrypted part.");
 
         return output.ToArray();
     }

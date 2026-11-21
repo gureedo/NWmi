@@ -64,7 +64,7 @@ internal sealed class WbemLevel1LoginClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(networkResource);
-        var reader = await _connection.CallAsync(OpNtlmLogin, writer =>
+        var reader = await _connection.CallReturningReferencesAsync(OpNtlmLogin, writer =>
         {
             WriteLpwstr(writer, networkResource);
             WriteLpwstr(writer, preferredLocale);
@@ -81,7 +81,7 @@ internal sealed class WbemLevel1LoginClient : IAsyncDisposable
             throw new NdrFormatException("NTLMLogin's IWbemServices was not a standard object reference.");
 
         var servicesConnection = await WmiOrpcConnection
-            .ConnectOrBindAsync(_connection, objRef, WmiIds.IidWbemServices, _connection.Security, cancellationToken)
+            .ConnectOrBindAsync(_connection, objRef, WmiIds.IidWbemServices, _connection.Security, CancellationToken.None)
             .ConfigureAwait(false);
         return new WbemServicesClient(servicesConnection);
     }

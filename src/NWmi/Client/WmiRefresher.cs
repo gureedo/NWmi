@@ -45,8 +45,15 @@ public sealed class WmiRefresher : IAsyncDisposable
         AddAsync(objectPath, isEnumeration: false, cancellationToken);
 
     /// <summary>Registers every instance of a class; <see cref="WmiRefreshItem.Objects"/> then holds the current set.</summary>
-    public Task<WmiRefreshItem> AddEnumerationAsync(string className, CancellationToken cancellationToken = default) =>
-        AddAsync(className, isEnumeration: true, cancellationToken);
+    /// <exception cref="ArgumentException"><paramref name="className"/> is not a CIM class name.</exception>
+    public Task<WmiRefreshItem> AddEnumerationAsync(string className, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(className);
+        if (!WmiConnection.IsClassName(className))
+            throw new ArgumentException($"'{className}' is not a CIM class name.", nameof(className));
+
+        return AddAsync(className, isEnumeration: true, cancellationToken);
+    }
 
     private async Task<WmiRefreshItem> AddAsync(string target, bool isEnumeration, CancellationToken cancellationToken)
     {
