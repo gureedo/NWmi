@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NWmi.Cli/NWmi.Cli.csproj" />
+    <Project Path="src/NWmi/NWmi.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NWmi.IntegrationTests/NWmi.IntegrationTests.csproj" />
+    <Project Path="tests/NWmi.Tests/NWmi.Tests.csproj" />
+  </Folder>
+</Solution>
