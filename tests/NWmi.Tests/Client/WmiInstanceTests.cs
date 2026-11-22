@@ -155,19 +155,37 @@ public class WmiInstanceTests
     }
 
     [Fact]
-    public void A_datetime_set_as_a_DateTimeOffset_or_TimeSpan_is_stored_as_a_DMTF_string()
+    public void A_datetime_set_in_any_accepted_form_is_stored_as_it_reads()
     {
         var @class = new WmioClass("NWmi_Dates", [], [],
         [
             new WmioProperty("When", WbemType.DateTime, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
         ], []);
         var obj = new WmiInstance(Class(@class));
+        var utc = new DateTime(2026, 11, 21, 8, 30, 0, DateTimeKind.Utc);
 
         obj["When"] = new DateTimeOffset(2026, 11, 21, 9, 30, 0, TimeSpan.FromHours(1));
-        Assert.Equal("20261121093000.000000+060", obj["When"]);
+        Assert.Equal(utc, obj["When"]);
+        Assert.Equal(DateTimeKind.Utc, ((DateTime)obj["When"]!).Kind);
+
+        obj["When"] = "20261121093000.000000+060";
+        Assert.Equal(utc, obj["When"]);
+
+        obj["When"] = utc.ToLocalTime();
+        Assert.Equal(utc, obj["When"]);
+        Assert.Equal(DateTimeKind.Utc, ((DateTime)obj["When"]!).Kind);
 
         obj.Properties["When"]!.Value = TimeSpan.FromMinutes(90);
-        Assert.Equal("00000000013000.000000:000", obj["When"]);
+        Assert.Equal(TimeSpan.FromMinutes(90), obj["When"]);
+
+        obj["When"] = "00000000013000.000000:000";
+        Assert.Equal(TimeSpan.FromMinutes(90), obj["When"]);
+
+        obj["When"] = "2026****093000.000000+060";
+        Assert.Equal("2026****093000.000000+060", obj["When"]);
+
+        obj["When"] = utc;
+        Assert.Equal("20261121083000.000000+000", obj.ToInstanceBlock().Instance!.Values["When"]);
     }
 
     [Fact]

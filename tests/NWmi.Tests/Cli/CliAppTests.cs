@@ -534,6 +534,34 @@ public class CliAppTests
         Assert.Equal(1, o.GetProperty("Child").GetProperty("X").GetInt32());
     }
 
+    private static WmiInstance Typed() => Make("T",
+        ("When", new DateTime(2026, 11, 21, 8, 30, 0, DateTimeKind.Utc)),
+        ("Span", new TimeSpan(1, 2, 3, 4)),
+        ("Sizes", new uint[] { 1, 2 }),
+        ("Owner", WmiInstance.FromReference(NWmi.Wmi.CimObjectPath.Parse(@"\\.\root\cimv2:Win32_Account.Name=""A"""))));
+
+    [Fact]
+    public async Task Text_output_writes_datetimes_in_ISO_8601_typed_arrays_and_references_as_paths()
+    {
+        var (_, _, text) = await WriteAsync("text", Typed());
+
+        Assert.Equal(
+            @"When=2026-11-21T08:30:00.0000000Z Span=1.02:03:04 Sizes=[1, 2] Owner=\\.\root\cimv2:Win32_Account.Name=""A""" +
+            Environment.NewLine, text);
+    }
+
+    [Fact]
+    public async Task Json_output_writes_datetimes_as_strings_typed_arrays_as_arrays_and_references_as_paths()
+    {
+        var (_, json, _) = await WriteAsync("jsonl", Typed());
+
+        var o = JsonDocument.Parse(json).RootElement;
+        Assert.Equal("2026-11-21T08:30:00.0000000Z", o.GetProperty("When").GetString());
+        Assert.Equal("1.02:03:04", o.GetProperty("Span").GetString());
+        Assert.Equal([1u, 2u], o.GetProperty("Sizes").EnumerateArray().Select(e => e.GetUInt32()));
+        Assert.Equal(@"\\.\root\cimv2:Win32_Account.Name=""A""", o.GetProperty("Owner").GetString());
+    }
+
     [Fact]
     public async Task No_objects_means_Any_is_false_in_every_format()
     {

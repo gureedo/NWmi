@@ -10,7 +10,7 @@ public sealed class WmiPropertyDeclaration
         Type = type;
         Flags = flags;
         Qualifiers = qualifiers;
-        Value = value;
+        Value = WmiValues.ToPublic(value, type);
         ReferenceClassName = referenceClassName;
     }
 
@@ -30,7 +30,7 @@ public sealed class WmiPropertyDeclaration
     /// <summary>The property's qualifiers (the <c>CIMTYPE</c> qualifier is <see cref="Type"/> and <see cref="ReferenceClassName"/>, and not listed).</summary>
     public WmiReadOnlyKeyedCollection<WmiQualifier> Qualifiers { get; }
 
-    /// <summary>The default value, or null.</summary>
+    /// <summary>The default value, or null; in the same form as <see cref="WmiProperty.Value"/>.</summary>
     public object? Value { get; }
 
     /// <summary>For a reference, the class it refers to (<c>Win32_Account</c> for <c>Win32_LoggedOnUser.Antecedent</c>), when the class says.</summary>

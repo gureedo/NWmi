@@ -10,10 +10,10 @@ namespace NWmi.WinRm;
 /// <summary>
 /// Turns the XML instances of a WS-Management reply into <see cref="WmiInstance"/>s. The XML carries no CIM types: the
 /// class definition (<see cref="WsmanClassSchema"/>) types the values when the server gives one. Without it a value is: null
-/// for <c>xsi:nil</c>, a <see cref="bool"/> for <c>true</c>/<c>false</c>, a DMTF string for a <c>cim:Datetime</c> or
-/// <c>cim:Interval</c> (as the binary protocol gives), a path string for a reference, a <see cref="WmiInstance"/> for a nested
-/// instance, an <c>object?[]</c> for a repeated element, and otherwise the text. A one-element array cannot then be told
-/// from a scalar and reads as one.
+/// for <c>xsi:nil</c>, a <see cref="bool"/> for <c>true</c>/<c>false</c>, a <see cref="DateTime"/> in UTC for a
+/// <c>cim:Datetime</c> and a <see cref="TimeSpan"/> for a <c>cim:Interval</c>, a <see cref="WmiInstance"/> holding the keys for
+/// a reference, a <see cref="WmiInstance"/> for a nested instance, an <c>object?[]</c> for a repeated element, and otherwise
+/// the text. A one-element array cannot then be told from a scalar and reads as one.
 /// </summary>
 internal static partial class WsmanObjectReader
 {
@@ -60,7 +60,7 @@ internal static partial class WsmanObjectReader
     /// <summary>A selector's value: its text, or the path of the instance when it is a reference.</summary>
     private static string SelectorValue(XElement selector) =>
         selector.Descendants().Any(e => e.Name.LocalName == "ReferenceParameters")
-            ? ReferencePath(selector) ?? string.Empty
+            ? ReferencePath(selector)?.ToString() ?? string.Empty
             : selector.Value.Trim();
 
     /// <summary>The class an instance element is typed as by its <c>xsi:type</c> (<c>p:Win32_ProcessStartup_Type</c>), if it has one.</summary>
@@ -126,63 +126,84 @@ internal static partial class WsmanObjectReader
             };
         }
 
-        if (first.Name == Wsman.Cim + "Datetime")
-            return ToDmtfDateTime(first.Value.Trim());
+        // By local name: in the fragments of a query that names its properties the element is not in the cim namespace.
+        if (IsDatetimeElement(first, "Datetime"))
+            return ParseDatetime(first.Value.Trim());
 
-        if (first.Name == Wsman.Cim + "Interval")
-            return ToDmtfInterval(first.Value.Trim());
+        if (IsDatetimeElement(first, "Interval"))
+            return ParseInterval(first.Value.Trim());
 
         if (first.Name.LocalName == "Address" &&
             element.Descendants().Any(e => e.Name.LocalName == "ReferenceParameters"))
-            return ReferencePath(element);
+            return ReferencePath(element) is { } path ? WmiInstance.FromReference(path) : null;
 
         var nestedClass = TypeClassOf(element) ?? element.Name.LocalName;
         var values = ReadProperties(element, nestedClass, schemas, server, ns);
         return WmiInstance.FromWinRm(nestedClass, values, schemas?.Invoke(nestedClass)?.Class, [], server, ns);
     }
 
-    /// <summary>A reference is an endpoint reference; its resource URI names the class and its selectors the keys.</summary>
-    private static string? ReferencePath(XElement element)
+    /// <summary>
+    /// A <c>cim:Datetime</c> or <c>cim:Interval</c>, or the unqualified one of a fragment. A property of an embedded
+    /// instance that happens to have that name is in the class's namespace, or under an element typed by <c>xsi:type</c>.
+    /// </summary>
+    private static bool IsDatetimeElement(XElement element, string localName) =>
+        element.Name.LocalName == localName && !element.HasElements && element.Parent!.Elements().Count() == 1 &&
+        (element.Name.Namespace == Wsman.Cim ||
+         (element.Name.Namespace == XNamespace.None && TypeClassOf(element.Parent) is null));
+
+    private const string WmiResourcePrefix = "http://schemas.microsoft.com/wbem/wsman/1/wmi/";
+
+    /// <summary>
+    /// A reference is an endpoint reference: its resource URI names the class, and its selectors the keys and, in
+    /// <c>__cimnamespace</c>, the namespace. A resource URI under the WMI prefix (<c>.../wmi/root/cimv2/Win32_Account</c>)
+    /// names the namespace too.
+    /// </summary>
+    private static CimObjectPath? ReferencePath(XElement element)
     {
         var uri = element.Descendants().FirstOrDefault(e => e.Name.LocalName == "ResourceURI")?.Value.Trim();
-        var className = uri?[(uri.LastIndexOf('/') + 1)..];
+        var slash = uri?.LastIndexOf('/') ?? -1;
+        var className = uri?[(slash + 1)..];
         if (string.IsNullOrEmpty(className))
             return null;
 
-        var keys = SelectorElements(element)
-            .Select(s => new KeyValuePair<string, object>((string?)s.Attribute("Name") ?? string.Empty, SelectorValue(s)))
-            .ToList();
-        return new CimObjectPath(className, keys).RelativePath;
+        string? @namespace = null;
+        if (uri!.StartsWith(WmiResourcePrefix, StringComparison.OrdinalIgnoreCase) && slash > WmiResourcePrefix.Length)
+            @namespace = uri[WmiResourcePrefix.Length..slash];
+
+        var keys = new List<KeyValuePair<string, object>>();
+        foreach (var selector in SelectorElements(element))
+        {
+            var name = (string?)selector.Attribute("Name") ?? string.Empty;
+            if (string.Equals(name, "__cimnamespace", StringComparison.OrdinalIgnoreCase))
+                @namespace = selector.Value.Trim();
+            else
+                keys.Add(new KeyValuePair<string, object>(name, SelectorValue(selector)));
+        }
+
+        return new CimObjectPath(className, keys, string.IsNullOrEmpty(@namespace) ? null : @namespace.Replace('/', '\\'));
     }
 
-    /// <summary>An ISO 8601 datetime as the DMTF <c>yyyymmddHHMMSS.mmmmmm+UUU</c> string.</summary>
-    internal static string ToDmtfDateTime(string iso)
-    {
-        if (!DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.None, out var value))
-            return iso;
+    /// <summary>An xs:dateTime as a <see cref="DateTime"/> in UTC; the text itself when it does not parse.</summary>
+    internal static object ParseDatetime(string iso) =>
+        DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var value)
+            ? value.UtcDateTime
+            : iso;
 
-        return DmtfDateTime.Format(value);
-    }
-
-    /// <summary>An xs:duration as the DMTF interval <c>ddddddddHHMMSS.mmmmmm:000</c>.</summary>
-    internal static string ToDmtfInterval(string duration)
+    /// <summary>An xs:duration as a <see cref="TimeSpan"/>; the text itself when it does not parse.</summary>
+    internal static object ParseInterval(string duration)
     {
-        var match = DurationPattern().Match(duration);
-        if (!match.Success)
+        if (!DurationPattern().IsMatch(duration))
             return duration;
 
-        TimeSpan span;
         try
         {
-            span = XmlConvert.ToTimeSpan(duration);
+            return XmlConvert.ToTimeSpan(duration);
         }
-        catch (FormatException)
+        catch (Exception ex) when (ex is FormatException or OverflowException)
         {
+            // An interval longer than TimeSpan holds (DMTF goes to 99999999 days) stays text too.
             return duration;
         }
-
-        // A negative interval has no DMTF form.
-        return span < TimeSpan.Zero ? duration : DmtfDateTime.Format(span);
     }
 
     [GeneratedRegex(@"^-?P")]

@@ -77,7 +77,7 @@ public class LongSessionTests
             await Reg(wmi, "SetBinaryValue", set);
 
             var read = await Reg(wmi, "GetBinaryValue", new Dictionary<string, object?>(key) { ["sValueName"] = "Blob" });
-            var back = ((object?[])read["uValue"]!).Cast<byte>().ToArray();
+            var back = Assert.IsType<byte[]>(read["uValue"]);
             Assert.Equal(data.Length, back.Length);
             Assert.True(data.AsSpan().SequenceEqual(back));
 
@@ -85,7 +85,7 @@ public class LongSessionTests
             string[] lines = [.. Enumerable.Range(0, 2000).Select(i => $"line {i} ünï ✓"), new('x', 100_000)];
             await Reg(wmi, "SetMultiStringValue", new Dictionary<string, object?>(key) { ["sValueName"] = "Lines", ["sValue"] = lines });
             var multi = await Reg(wmi, "GetMultiStringValue", new Dictionary<string, object?>(key) { ["sValueName"] = "Lines" });
-            Assert.Equal(lines, ((object?[])multi["sValue"]!).Cast<string>());
+            Assert.Equal(lines, Assert.IsType<string[]>(multi["sValue"]));
         }
         finally
         {

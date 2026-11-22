@@ -30,7 +30,9 @@ public class WsmanObjectReaderTests
         Assert.Equal("4", obj["Handle"]);
         Assert.Equal(true, obj["Enabled"]);
         Assert.Null(obj["Missing"]);
-        Assert.Equal("20261029071949.637856+060", obj["Created"]);
+        Assert.Equal(new DateTime(2026, 10, 29, 6, 19, 49, DateTimeKind.Utc).AddTicks(6378560), obj["Created"]);
+        Assert.Equal(DateTimeKind.Utc, ((DateTime)obj["Created"]!).Kind);
+        Assert.Equal(WmiType.DateTime, obj.Properties["Created"]!.Type);
         Assert.Equal(new object?[] { "a", "b" }, (object?[])obj["Tags"]!);
         Assert.Equal("7", ((WmiInstance)obj["Child"]!)["Size"]);
         Assert.EndsWith("Win32_Thing.Handle=\"4\"", obj.SystemProperties.Path);
@@ -49,7 +51,7 @@ public class WsmanObjectReaderTests
     }
 
     [Fact]
-    public void An_association_keyed_by_references_has_only_its_own_keys_and_reads_its_references_as_paths()
+    public void An_association_keyed_by_references_has_only_its_own_keys_and_reads_its_references_as_instances()
     {
         const string reference = """
             <a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address>
@@ -85,10 +87,15 @@ public class WsmanObjectReaderTests
         var obj = WsmanObjectReader.Read(instance, epr, null, "host", @"root\cimv2");
 
         Assert.Equal(["GroupComponent", "PartComponent"], obj.KeyNames);
-        Assert.Equal("Win32_ComputerSystem.Name=\"W1\"", obj["GroupComponent"]);
-        Assert.Equal("Win32_Service.Name=\"WinRM\"", obj["PartComponent"]);
+        var system = Assert.IsType<WmiInstance>(obj["GroupComponent"]);
+        Assert.Equal(WmiType.Reference, obj.Properties["GroupComponent"]!.Type);
+        Assert.Equal("Win32_ComputerSystem", system.SystemProperties.ClassName);
+        Assert.Equal(@"root\cimv2", system.SystemProperties.Namespace);
+        Assert.Equal("W1", system["Name"]);
+        Assert.Equal(WmiFlags.Property | WmiFlags.Key | WmiFlags.NotModified, system.Properties["Name"]!.Flags);
+        Assert.Equal(@"root\cimv2:Win32_Service.Name=""WinRM""", ((WmiInstance)obj["PartComponent"]!).SystemProperties.Path);
         Assert.Equal(
-            "Win32_SystemServices.GroupComponent=\"Win32_ComputerSystem.Name=\\\"W1\\\"\",PartComponent=\"Win32_Service.Name=\\\"WinRM\\\"\"",
+            @"Win32_SystemServices.GroupComponent=""root\\cimv2:Win32_ComputerSystem.Name=\""W1\"""",PartComponent=""root\\cimv2:Win32_Service.Name=\""WinRM\""""",
             obj.SystemProperties.RelativePath);
     }
 
@@ -102,14 +109,83 @@ public class WsmanObjectReaderTests
     }
 
     [Theory]
-    [InlineData("2026-01-02T03:04:05+00:00", "20260102030405.000000+000")]
-    [InlineData("2026-01-02T03:04:05.5-05:30", "20260102030405.500000-330")]
-    public void Datetimes_become_DMTF_strings(string iso, string expected) =>
-        Assert.Equal(expected, WsmanObjectReader.ToDmtfDateTime(iso));
+    [InlineData("2026-01-02T03:04:05+00:00", "2026-01-02T03:04:05.0000000Z")]
+    [InlineData("2026-01-02T03:04:05.5-05:30", "2026-01-02T08:34:05.5000000Z")]
+    [InlineData("2026-01-02T03:04:05", "2026-01-02T03:04:05.0000000Z")] // no offset: UTC
+    public void Datetimes_become_UTC_DateTimes(string iso, string expected)
+    {
+        var value = Assert.IsType<DateTime>(WsmanObjectReader.ParseDatetime(iso));
+        Assert.Equal(DateTimeKind.Utc, value.Kind);
+        Assert.Equal(expected, value.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+    }
 
     [Fact]
-    public void Intervals_become_DMTF_intervals() =>
-        Assert.Equal("00000001020304.500000:000", WsmanObjectReader.ToDmtfInterval("P1DT2H3M4.5S"));
+    public void A_datetime_in_a_fragment_outside_the_cim_namespace_is_still_a_datetime()
+    {
+        var fragment = XElement.Parse("""
+            <w:XmlFragment xmlns:w="urn:x"><LastBootUpTime><Datetime>2026-10-29T07:19:44.5+01:00</Datetime></LastBootUpTime></w:XmlFragment>
+            """);
+
+        var obj = WsmanObjectReader.Read(fragment, null, null, null, null, "Win32_OperatingSystem");
+
+        Assert.Equal(new DateTime(2026, 10, 29, 6, 19, 44, 500, DateTimeKind.Utc), obj["LastBootUpTime"]);
+    }
+
+    [Fact]
+    public void An_embedded_instance_whose_only_property_is_Interval_stays_an_instance()
+    {
+        var instance = XElement.Parse("""
+            <p:Thing xmlns:p="urn:x" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+              <p:Pattern xsi:type="p:Schedule_Type"><p:Interval>PT5M</p:Interval></p:Pattern>
+              <p:Other><Datetime>x</Datetime></p:Other>
+            </p:Thing>
+            """);
+
+        var obj = WsmanObjectReader.Read(instance, null, [], null, null);
+
+        Assert.Equal("PT5M", Assert.IsType<WmiInstance>(obj["Pattern"])["Interval"]);
+    }
+
+    [Fact]
+    public void Without_a_schema_repeated_references_and_datetimes_are_typed_arrays()
+    {
+        const string reference = """
+            <p:Owners><a:Address>x</a:Address><a:ReferenceParameters>
+              <w:ResourceURI>http://schemas.microsoft.com/wbem/wsman/1/wmi/root/cimv2/Win32_Account</w:ResourceURI>
+              <w:SelectorSet><w:Selector Name="Name">{0}</w:Selector></w:SelectorSet>
+            </a:ReferenceParameters></p:Owners>
+            """;
+        var instance = XElement.Parse($"""
+            <p:Thing xmlns:p="urn:x" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+                xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:cim="http://schemas.dmtf.org/wbem/wscim/1/common">
+              {string.Format(CultureInfo.InvariantCulture, reference, "a")}{string.Format(CultureInfo.InvariantCulture, reference, "b")}
+              <p:Times><cim:Datetime>2026-01-02T03:04:05Z</cim:Datetime></p:Times><p:Times><cim:Datetime>2026-01-03T03:04:05Z</cim:Datetime></p:Times>
+            </p:Thing>
+            """);
+
+        var obj = WsmanObjectReader.Read(instance, null, [], null, null);
+
+        Assert.Equal(WmiType.ReferenceArray, obj.Properties["Owners"]!.Type);
+        Assert.Equal(["a", "b"], Assert.IsType<WmiInstance[]>(obj["Owners"]).Select(o => o["Name"]));
+        Assert.Equal(WmiType.DateTimeArray, obj.Properties["Times"]!.Type);
+        Assert.IsType<DateTime[]>(obj["Times"]);
+    }
+
+    [Fact]
+    public void An_interval_longer_than_a_TimeSpan_stays_text() =>
+        Assert.Equal("P99999999DT23H59M59.999999S", WsmanObjectReader.ParseInterval("P99999999DT23H59M59.999999S"));
+
+    [Fact]
+    public void A_datetime_that_does_not_parse_stays_text() =>
+        Assert.Equal("not a date", WsmanObjectReader.ParseDatetime("not a date"));
+
+    [Fact]
+    public void Intervals_become_TimeSpans() =>
+        Assert.Equal(new TimeSpan(1, 2, 3, 4, 500), WsmanObjectReader.ParseInterval("P1DT2H3M4.5S"));
+
+    [Fact]
+    public void An_interval_that_does_not_parse_stays_text() =>
+        Assert.Equal("1 day", WsmanObjectReader.ParseInterval("1 day"));
 
     private const string ClassXml = """
         <CLASS NAME="Win32_Thing">
@@ -138,8 +214,8 @@ public class WsmanObjectReaderTests
         Assert.Equal(4u, obj["Handle"]);
         Assert.Equal("true", obj["Name"]);
         Assert.Equal(false, obj["Enabled"]);
-        Assert.Equal(new object?[] { "only" }, (object?[])obj["Tags"]!);
-        Assert.Equal(new object?[] { (ushort)1 }, (object?[])obj["Sizes"]!);
+        Assert.Equal(new[] { "only" }, Assert.IsType<string[]>(obj["Tags"]));
+        Assert.Equal(new ushort[] { 1 }, Assert.IsType<ushort[]>(obj["Sizes"]));
     }
 
     [Fact]

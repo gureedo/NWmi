@@ -19,6 +19,7 @@ public sealed class WmiInstance
     private WmiClass? _class;
     private readonly bool _clientOnly;
     private readonly bool _isClassRow;
+    private readonly bool _isSingleton;
     private readonly string? _namespace;
     private readonly string? _server;
     private readonly List<WmioQualifier> _qualifiers;
@@ -40,8 +41,7 @@ public sealed class WmiInstance
         _qualifiers = [];
         _propertyQualifiers = new Dictionary<string, List<WmioQualifier>>(StringComparer.OrdinalIgnoreCase);
         _properties = Collection(@class.Properties.Select(p =>
-            new WmiProperty(p.Name, CopyValue(p.Value), p.Type, p.Flags,
-                _wire?.FindProperty(p.Name)?.Type ?? WireTypeOf(p.Type), isValueModified: false)));
+            new WmiProperty(p.Name, CopyValue(p.Value), p.Type, p.Flags, isValueModified: false)));
     }
 
     /// <summary>
@@ -53,15 +53,44 @@ public sealed class WmiInstance
     /// <param name="namespace">The namespace (<c>root\cimv2</c>), if known.</param>
     /// <exception cref="ArgumentException"><paramref name="className"/> is empty.</exception>
     public WmiInstance(string className, string? @namespace = null)
+        : this(className, @namespace, server: null, isSingleton: false, isReference: false)
+    {
+    }
+
+    private WmiInstance(string className, string? @namespace, string? server, bool isSingleton, bool isReference)
     {
         ArgumentException.ThrowIfNullOrEmpty(className);
         _clientOnly = true;
         ClientOnlyClassName = className;
         _namespace = @namespace;
+        _server = server;
+        _isSingleton = isSingleton;
+        IsReference = isReference;
         _qualifiers = [];
         _propertyQualifiers = new Dictionary<string, List<WmioQualifier>>(StringComparer.OrdinalIgnoreCase);
         _properties = Collection([]);
     }
+
+    /// <summary>
+    /// The value of a reference: an instance built on the client from the path it holds, with the path's class, namespace
+    /// and server, and a key property for each of the path's keys.
+    /// </summary>
+    internal static WmiInstance FromReference(CimObjectPath path)
+    {
+        var instance = new WmiInstance(path.ClassName, path.Namespace, path.Server, path.IsSingleton,
+            isReference: true);
+        foreach (var (name, value) in path.Keys)
+        {
+            var type = WmiTypeMapping.ToWmiType(WmiConnection.InferCimType(value));
+            instance._properties.Add(new WmiProperty(name, WmiValues.ToPublic(value, type), type,
+                WmiFlags.Property | WmiFlags.Key, isValueModified: false));
+        }
+
+        return instance;
+    }
+
+    /// <summary>Whether this instance is the value of a reference, made from the path it held (<see cref="FromReference"/>).</summary>
+    internal bool IsReference { get; }
 
     /// <summary>A copy of <paramref name="instance"/>: the same class, copies of its values (embedded instances too), the same modified marks.</summary>
     public WmiInstance(WmiInstance instance)
@@ -72,6 +101,8 @@ public sealed class WmiInstance
         _clientOnly = instance._clientOnly;
         ClientOnlyClassName = instance.ClientOnlyClassName;
         _isClassRow = instance._isClassRow;
+        _isSingleton = instance._isSingleton;
+        IsReference = instance.IsReference;
         _namespace = instance._namespace;
         _server = instance._server;
         _qualifiers = [.. instance._qualifiers];
@@ -122,16 +153,20 @@ public sealed class WmiInstance
             var isParameters = IsParameters(@class.Name);
             return new WmiInstance(WmiClass.FromWire(@class, server, ns), @class,
                 @class.Properties.Select(p => new WmiProperty(p.Name, null, WmiTypeMapping.ToWmiType(p.Type),
-                    WmiTypeMapping.DeclarationFlags(p.Qualifiers, isParameters), p.Type, isValueModified: false)),
+                    WmiTypeMapping.DeclarationFlags(p.Qualifiers, isParameters), isValueModified: false)),
                 isClassRow: true, server, ns);
         }
 
         var instance = block.Instance!;
         var isParameterSet = IsParameters(instance.Class.Name);
         return new WmiInstance(null, instance.Class,
-            instance.Class.Properties.Select(p => new WmiProperty(p.Name,
-                FromWireValue(instance.Values.GetValueOrDefault(p.Name), server, ns), WmiTypeMapping.ToWmiType(p.Type),
-                WmiTypeMapping.DeclarationFlags(p.Qualifiers, isParameterSet), p.Type, isValueModified: false)),
+            instance.Class.Properties.Select(p =>
+            {
+                var type = WmiTypeMapping.ToWmiType(p.Type);
+                return new WmiProperty(p.Name,
+                    WmiValues.ToPublic(FromWireValue(instance.Values.GetValueOrDefault(p.Name), server, ns), type),
+                    type, WmiTypeMapping.DeclarationFlags(p.Qualifiers, isParameterSet), isValueModified: false);
+            }),
             isClassRow: false, server, ns, instance.Qualifiers, instance.PropertyQualifiers);
     }
 
@@ -168,13 +203,22 @@ public sealed class WmiInstance
             if (type is WmiType.Unknown or WmiType.String or WmiType.StringArray)
                 type = value switch
                 {
-                    WmiInstance => WmiType.Instance,
-                    object?[] { Length: > 0 } array when array.All(e => e is WmiInstance) => WmiType.InstanceArray,
+                    WmiInstance { IsReference: true } when type == WmiType.Unknown => WmiType.Reference,
+                    WmiInstance { IsReference: false } => WmiType.Instance,
+                    DateTime or TimeSpan when type == WmiType.Unknown => WmiType.DateTime,
+                    object?[] { Length: > 0 } array when type == WmiType.Unknown &&
+                                                         array.All(e => e is WmiInstance { IsReference: true }) =>
+                        WmiType.ReferenceArray,
+                    object?[] { Length: > 0 } array when type == WmiType.Unknown &&
+                                                         array.All(e => e is DateTime or TimeSpan) =>
+                        WmiType.DateTimeArray,
+                    object?[] { Length: > 0 } array when array.All(e => e is WmiInstance { IsReference: false }) =>
+                        WmiType.InstanceArray,
                     _ => type,
                 };
 
-            properties.Add(new WmiProperty(declared?.Name ?? name, isClassRow ? null : value, type, flags,
-                WireTypeOf(type), isValueModified: false));
+            properties.Add(new WmiProperty(declared?.Name ?? name, isClassRow ? null : WmiValues.ToPublic(value, type),
+                type, flags, isValueModified: false));
         }
 
         @class ??= WmiClass.Synthesized(className,
@@ -187,9 +231,6 @@ public sealed class WmiInstance
     private static bool IsParameters(string? className) =>
         string.Equals(className, "__PARAMETERS", StringComparison.OrdinalIgnoreCase);
 
-    private static WbemType? WireTypeOf(WmiType type) =>
-        type == WmiType.Unknown ? null : WmiTypeMapping.ToWbemType(type);
-
     /// <summary>A value as read from the binary format, with each embedded object (at any depth in an array) as a <see cref="WmiInstance"/>.</summary>
     internal static object? FromWireValue(object? value, string? server, string? @namespace) => value switch
     {
@@ -201,7 +242,10 @@ public sealed class WmiInstance
     internal static object? CopyValue(object? value) => value switch
     {
         WmiInstance embedded => new WmiInstance(embedded),
-        object?[] array => array.Select(CopyValue).ToArray(),
+        WmiInstance[] instances => instances.Select(e => new WmiInstance(e)).ToArray(),
+        // Only a true object?[] can hold embedded objects to copy; a string[] (an object?[] by covariance) stays a string[].
+        object?[] array when array.GetType() == typeof(object[]) => array.Select(CopyValue).ToArray(),
+        Array array => array.Clone(),
         _ => value,
     };
 
@@ -244,7 +288,8 @@ public sealed class WmiInstance
         var keys = KeyProperties();
         var hasKeys = keys.Count > 0 && keys.All(k => k.Value is not null);
         return new CimObjectPath(ClassName,
-            hasKeys ? keys.Select(k => new KeyValuePair<string, object>(k.Name, k.Value!)) : null, @namespace, server);
+            hasKeys ? keys.Select(k => new KeyValuePair<string, object>(k.Name, WmiValues.ToKeyValue(k.Value!))) : null,
+            @namespace, server, isSingleton: _isSingleton && !hasKeys);
     }
 
     private List<WmiProperty> KeyProperties() => [.. _properties.Where(p => (p.DeclaredFlags & WmiFlags.Key) != 0)];

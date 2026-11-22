@@ -45,21 +45,21 @@ public class ArrayAndPathTests
             string[] lines = ["first", "second line", "ünïcode ✓"];
             await RegAsync(wmi, "SetMultiStringValue", Value("Lines", "sValue", lines));
             var multi = await RegAsync(wmi, "GetMultiStringValue", Value("Lines"));
-            Assert.Equal(lines, ((object?[])multi["sValue"]!).Cast<string>());
+            Assert.Equal(lines, Assert.IsType<string[]>(multi["sValue"]));
 
             byte[] data = [0, 1, 2, 127, 128, 255];
             await RegAsync(wmi, "SetBinaryValue", Value("Blob", "uValue", data));
             var binary = await RegAsync(wmi, "GetBinaryValue", Value("Blob"));
-            Assert.Equal(data, ((object?[])binary["uValue"]!).Cast<byte>());
+            Assert.Equal(data, Assert.IsType<byte[]>(binary["uValue"]));
 
             // A list of ints for a uint8 array, and an empty array.
             await RegAsync(wmi, "SetBinaryValue", Value("Ints", "uValue", new List<int> { 9, 8, 7 }));
             await RegAsync(wmi, "SetMultiStringValue", Value("Empty", "sValue", Array.Empty<string>()));
 
             var names = await RegAsync(wmi, "EnumValues", key);
-            Assert.Equal(["Blob", "Empty", "Ints", "Lines"], ((object?[])names["sNames"]!).Cast<string>().Order(StringComparer.OrdinalIgnoreCase));
+            Assert.Equal(["Blob", "Empty", "Ints", "Lines"], Assert.IsType<string[]>(names["sNames"]).Order(StringComparer.OrdinalIgnoreCase));
             var ints = await RegAsync(wmi, "GetBinaryValue", Value("Ints"));
-            Assert.Equal(new byte[] { 9, 8, 7 }, ((object?[])ints["uValue"]!).Cast<byte>());
+            Assert.Equal(new byte[] { 9, 8, 7 }, Assert.IsType<byte[]>(ints["uValue"]));
         }
         finally
         {

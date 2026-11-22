@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -393,16 +394,16 @@ public sealed class WmiConnection : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         if (_winRm is not null)
-            return _winRm.QueryAsync(query, cancellationToken);
+            return WithTypedReferenceKeys(_winRm.QueryAsync(query, cancellationToken), cancellationToken);
 
         var context = WireContext();
-        return RunQueryAsync(
+        return WithTypedReferenceKeys(RunQueryAsync(
             ct => Services.ExecQueryAsync(query,
                 flags | WbemGenericFlags.ReturnImmediately | WbemGenericFlags.ForwardOnly, context, ct),
             $"Query: {query}",
             stopWhenExhausted: true,
             Wrap,
-            cancellationToken);
+            cancellationToken), cancellationToken);
     }
 
     /// <summary>
@@ -419,17 +420,18 @@ public sealed class WmiConnection : IAsyncDisposable
             throw new ArgumentException($"'{className}' is not a CIM class name.", nameof(className));
 
         if (_winRm is not null)
-            return _winRm.EnumerateInstancesAsync(className, shallow, cancellationToken);
+            return WithTypedReferenceKeys(_winRm.EnumerateInstancesAsync(className, shallow, cancellationToken),
+                cancellationToken);
 
         var flags = WbemGenericFlags.ReturnImmediately | WbemGenericFlags.ForwardOnly |
                     (shallow ? (WbemGenericFlags)(uint)WbemQueryFlags.Shallow : 0);
         var context = WireContext();
-        return RunQueryAsync(
+        return WithTypedReferenceKeys(RunQueryAsync(
             ct => Services.CreateInstanceEnumAsync(className, flags, context, ct),
             $"Enumerate instances of {className}",
             stopWhenExhausted: true,
             Wrap,
-            cancellationToken);
+            cancellationToken), cancellationToken);
     }
 
     internal static bool IsClassName(string name) =>
@@ -531,17 +533,17 @@ public sealed class WmiConnection : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(eventQuery);
         if (_winRm is not null)
-            return _winRm.WatchAsync(eventQuery, cancellationToken);
+            return WithTypedReferenceKeys(_winRm.WatchAsync(eventQuery, cancellationToken), cancellationToken);
 
         var context = WireContext();
-        return RunQueryAsync(
+        return WithTypedReferenceKeys(RunQueryAsync(
             ct => Services.ExecNotificationQueryAsync(eventQuery,
                 flags | WbemGenericFlags.ReturnImmediately | WbemGenericFlags.ForwardOnly, context, ct),
             $"Watch: {eventQuery}",
             stopWhenExhausted: false,
             Wrap,
             cancellationToken,
-            batchSize: 1); // events trickle in; a larger batch makes the server hold the first one until the batch fills or times out
+            batchSize: 1), cancellationToken); // events trickle in; a larger batch makes the server hold the first one until the batch fills or times out
     }
 
     private async IAsyncEnumerable<T> RunQueryAsync<T>(
@@ -601,14 +603,19 @@ public sealed class WmiConnection : IAsyncDisposable
             throw new ArgumentException($"'{objectPath}' is the path of a class; get it with GetClassAsync.",
                 nameof(objectPath));
 
+        WmiInstance instance;
         if (_winRm is not null)
-            return await _winRm.GetInstanceAsync(serverPath, cancellationToken).ConfigureAwait(false);
+            instance = await _winRm.GetInstanceAsync(serverPath, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            var block = await GetObjectBlockAsync(serverPath, flags, cancellationToken).ConfigureAwait(false);
+            instance = block is null
+                ? throw new WmiException(unchecked((int)WbemStatus.NotFound),
+                    $"GetObject returned no object for {objectPath}.")
+                : Wrap(block);
+        }
 
-        var block = await GetObjectBlockAsync(serverPath, flags, cancellationToken).ConfigureAwait(false);
-        return block is null
-            ? throw new WmiException(unchecked((int)WbemStatus.NotFound),
-                $"GetObject returned no object for {objectPath}.")
-            : Wrap(block);
+        return (await TypeReferenceKeysAsync(instance, cancellationToken).ConfigureAwait(false))!;
     }
 
     /// <summary>Retrieves a CIM class's definition: its properties, methods and qualifiers.</summary>
@@ -758,8 +765,9 @@ public sealed class WmiConnection : IAsyncDisposable
         Log(Options, $"Invoking {methodName} on {objectPath}.");
         objectPath = ToServerPath(objectPath);
         if (_winRm is not null)
-            return await _winRm.InvokeMethodAsync(objectPath, methodName, parameters, cancellationToken)
-                .ConfigureAwait(false);
+            return await TypeReferenceKeysAsync(
+                await _winRm.InvokeMethodAsync(objectPath, methodName, parameters, cancellationToken)
+                    .ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 
         WmioObjectBlock? inParams = null;
         if (parameters is { Count: > 0 })
@@ -783,14 +791,16 @@ public sealed class WmiConnection : IAsyncDisposable
                     {
                         var outParams = await callResult.GetResultObjectAsync(PollStepMilliseconds, cancellationToken)
                             .ConfigureAwait(false);
-                        return outParams is null ? null : Wrap(outParams);
+                        return await TypeReferenceKeysAsync(outParams is null ? null : Wrap(outParams),
+                            cancellationToken).ConfigureAwait(false);
                     }
                     catch (WmiException ex) when (ex.HResult == (int)WbemStatus.Timedout)
                     {
                         // Still running: wait again.
                     }
 
-        return result.OutParameters is null ? null : Wrap(result.OutParameters);
+        return await TypeReferenceKeysAsync(result.OutParameters is null ? null : Wrap(result.OutParameters),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -812,6 +822,107 @@ public sealed class WmiConnection : IAsyncDisposable
 
         return path.RelativePath;
     }
+
+    private async IAsyncEnumerable<WmiInstance> WithTypedReferenceKeys(
+        IAsyncEnumerable<WmiInstance> source, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var instance in source.WithCancellation(cancellationToken).ConfigureAwait(false))
+            yield return (await TypeReferenceKeysAsync(instance, cancellationToken).ConfigureAwait(false))!;
+    }
+
+    /// <summary>
+    /// Gives the key properties of each reference in <paramref name="instance"/> (embedded objects included) the types the
+    /// referenced class declares. A path, or a WinRM selector, only tells a string from a number or a boolean, and the two
+    /// transports tell it differently; the class is fetched once per connection. A class in another namespace, or one the
+    /// server does not give, leaves the keys as read.
+    /// </summary>
+    private async Task<WmiInstance?> TypeReferenceKeysAsync(WmiInstance? instance, CancellationToken cancellationToken)
+    {
+        if (instance is null)
+            return null;
+
+        foreach (var reference in ReferencesIn(instance))
+        {
+            if (await KeyTypesAsync(reference, cancellationToken).ConfigureAwait(false) is not { } keyTypes)
+                continue;
+
+            foreach (var property in reference.Properties)
+                if (property.Value is { } value && keyTypes.TryGetValue(property.Name, out var type) &&
+                    type != property.Type && WmiValues.TryToKeyType(value, type, out var converted))
+                    property.Retype(type, converted);
+        }
+
+        return instance;
+    }
+
+    private static IEnumerable<WmiInstance> ReferencesIn(WmiInstance instance)
+    {
+        foreach (var property in instance.Properties)
+            foreach (var reference in ReferencesIn(property.Value))
+                yield return reference;
+    }
+
+    private static IEnumerable<WmiInstance> ReferencesIn(object? value)
+    {
+        switch (value)
+        {
+            case WmiInstance { IsReference: true } reference:
+                yield return reference;
+                break;
+            case WmiInstance embedded:
+                foreach (var reference in ReferencesIn(embedded))
+                    yield return reference;
+                break;
+            case object?[] or WmiInstance[]:
+                foreach (var element in (IEnumerable)value)
+                    foreach (var reference in ReferencesIn(element))
+                        yield return reference;
+                break;
+        }
+    }
+
+    private readonly ConcurrentDictionary<string, Task<Dictionary<string, WmiType>?>> _keyTypes =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task<Dictionary<string, WmiType>?> KeyTypesAsync(WmiInstance reference,
+        CancellationToken cancellationToken)
+    {
+        var system = reference.SystemProperties;
+        if (system.Namespace is { } ns && !string.Equals(ns, _namespacePath, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!IsClassName(system.ClassName))
+            return null;
+
+        var fetch = _keyTypes.GetOrAdd(system.ClassName, FetchKeyTypesAsync);
+        try
+        {
+            return await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (fetch.IsFaulted || fetch.IsCanceled)
+        {
+            // A transport failure says nothing about the class: try again next time.
+            _keyTypes.TryRemove(new KeyValuePair<string, Task<Dictionary<string, WmiType>?>>(system.ClassName, fetch));
+            throw;
+        }
+    }
+
+    private async Task<Dictionary<string, WmiType>?> FetchKeyTypesAsync(string className)
+    {
+        try
+        {
+            var @class = await GetClassAsync(className).ConfigureAwait(false);
+            return @class.Properties
+                .Where(p => (p.Flags & WmiFlags.Key) != 0 && p.Type != WmiType.Unknown)
+                .ToDictionary(p => p.Name, p => p.Type, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is WmiException or WsmanException)
+        {
+            // Keys as read are better than failing the read.
+            return null;
+        }
+    }
+
 
     internal WmiInstance Wrap(WmioObjectBlock block) => WmiInstance.FromWire(block, _host, _namespacePath);
 
@@ -885,7 +996,7 @@ public sealed class WmiConnection : IAsyncDisposable
             .Select(kv =>
             {
                 var type = InferCimType(kv.Value);
-                var value = type.IsArray() || type is WbemType.Object or WbemType.DateTime
+                var value = type.IsArray() || type is WbemType.Object or WbemType.DateTime or WbemType.Reference
                     ? CoerceValue(kv.Value, type)
                     : kv.Value;
                 var id = order++;
@@ -917,6 +1028,7 @@ public sealed class WmiConnection : IAsyncDisposable
     private static string MofTypeName(WbemType type, object? value = null) => type switch
     {
         WbemType.Object => "object:" + EmbeddedClassName(value),
+        WbemType.Reference => "ref:" + ReferencedClassName(value),
         WbemType.String => "string",
         WbemType.Boolean => "boolean",
         WbemType.Sint8 => "sint8",
@@ -943,6 +1055,14 @@ public sealed class WmiConnection : IAsyncDisposable
         _ => throw new NotSupportedException("An embedded-object parameter needs a WmiInstance."),
     };
 
+    /// <summary>The class a reference parameter (or the first of an array of them) refers to, for its <c>ref:Class</c> CIMTYPE.</summary>
+    private static string ReferencedClassName(object? value) => value switch
+    {
+        WmiInstance reference => reference.SystemProperties.ClassName,
+        IEnumerable sequence => sequence.OfType<WmiInstance>().First().SystemProperties.ClassName,
+        _ => throw new NotSupportedException("A reference parameter needs a WmiInstance."),
+    };
+
     /// <summary>
     /// The CIM type to send <paramref name="value"/> as when a method's signature is not known: a scalar for the common
     /// .NET types, the same with <see cref="WbemType.ArrayFlag"/> for an array or any other sequence of them (<c>string[]</c>,
@@ -952,6 +1072,13 @@ public sealed class WmiConnection : IAsyncDisposable
     {
         if (value is null or string)
             return WbemType.String;
+
+        if (value is WmiInstance { IsReference: true })
+            return WbemType.Reference;
+
+        if (value is IEnumerable items &&
+            items.Cast<object?>().FirstOrDefault(e => e is not null) is WmiInstance { IsReference: true })
+            return WbemType.Reference.AsArray();
 
         return value is IEnumerable sequence ? InferElementType(sequence).AsArray() : InferScalarType(value.GetType());
     }
@@ -991,7 +1118,7 @@ public sealed class WmiConnection : IAsyncDisposable
         : type == typeof(float) ? WbemType.Real32
         : type == typeof(double) ? WbemType.Real64
         : type == typeof(char) ? WbemType.Char16
-        : type == typeof(DateTimeOffset) || type == typeof(TimeSpan) ? WbemType.DateTime
+        : type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) ? WbemType.DateTime
         : type == typeof(WmiInstance) ? WbemType.Object
         : throw new NotSupportedException($"Cannot infer a CIM type for a method parameter value of type {type}.");
 
@@ -1024,13 +1151,11 @@ public sealed class WmiConnection : IAsyncDisposable
             WbemType.Real64 => Convert.ToDouble(value, CultureInfo.InvariantCulture),
             WbemType.Boolean => Convert.ToBoolean(value, CultureInfo.InvariantCulture),
             WbemType.Char16 => Convert.ToChar(value, CultureInfo.InvariantCulture),
-            WbemType.DateTime => value switch
-            {
-                DateTimeOffset moment => DmtfDateTime.Format(moment),
-                TimeSpan interval => DmtfDateTime.Format(interval),
-                _ => Convert.ToString(value, CultureInfo.InvariantCulture),
-            },
-            WbemType.String or WbemType.Reference => Convert.ToString(value, CultureInfo.InvariantCulture),
+            WbemType.DateTime => WmiValues.ToDmtf(value) ?? Convert.ToString(value, CultureInfo.InvariantCulture),
+            WbemType.Reference => value is WmiInstance reference
+                ? WmiValues.ReferencePath(reference)
+                : Convert.ToString(value, CultureInfo.InvariantCulture),
+            WbemType.String => Convert.ToString(value, CultureInfo.InvariantCulture),
             WbemType.Object => value switch
             {
                 WmiInstance embedded => embedded.ToInstanceBlock(),

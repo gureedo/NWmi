@@ -100,12 +100,28 @@ await foreach (var dependency in wmi.GetAssociatorsAsync("Win32_Service.Name=\"W
 
 await foreach (var link in wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"C:\"",
                    resultClass: "Win32_LogicalDiskToPartition"))
-    Console.WriteLine(link["Antecedent"]);
+{
+    var partition = (WmiInstance)link["Antecedent"]!;   // a reference: the keys of the instance it refers to
+    Console.WriteLine(partition["DeviceID"]);            // Disk #0, Partition #1
+    Console.WriteLine((await wmi.GetInstanceAsync(partition.SystemProperties.Path!))["Size"]);
+}
 ```
 
-Property values come back as CLR types (`uint`, `ulong`, `bool`, `char`, `string`, ...), arrays as `object?[]`,
-embedded objects as `WmiInstance`, and CIM datetimes as the DMTF string the server sent. A not-found instance or class
-throws a `WmiException` with `WBEM_E_NOT_FOUND`.
+Property values come back typed, the same over DCOM and WinRM:
+
+| CIM type | .NET type |
+|---|---|
+| numbers, `boolean`, `char16`, `string` | `byte`, `sbyte`, `ushort`, `short`, `uint`, `int`, `ulong`, `long`, `float`, `double`, `bool`, `char`, `string` |
+| `datetime`, a timestamp | `DateTime` in UTC (`DateTimeKind.Utc`); the server's UTC offset is not kept |
+| `datetime`, an interval | `TimeSpan` |
+| `datetime` with wildcards (`2026****093000.000000+060`) | the DMTF string |
+| reference | `WmiInstance` built from the path: its class, namespace, server and key properties |
+| embedded object | `WmiInstance` |
+| arrays | an array of the element type: `string[]`, `uint[]`, `DateTime[]`, `WmiInstance[]`, ... |
+
+On write a datetime also takes a `DateTimeOffset` or a DMTF string, a reference a path string or any `WmiInstance` (sent
+as its path), and an array any sequence. A not-found instance or class throws a `WmiException` with
+`WBEM_E_NOT_FOUND`.
 
 `Properties` also gives each property's CIM type (`WmiType`), its flags (`WmiFlags`: `Key`, `ReadOnly`, `Required`,
 `NullValue`, `NotModified`, ...), and whether it has been set since it was read:
@@ -217,6 +233,9 @@ nwmi -h HOST -u [DOMAIN\]USER -p PASSWORD [-n NAMESPACE] [-o text|json|jsonl] "W
 ```
 dotnet run --project src/NWmi.Cli -- -h server01 -u CORP\admin -p secret -o json "SELECT Name FROM Win32_Process"
 ```
+
+Timestamps are written in ISO 8601 UTC (`2026-10-29T06:19:44.5000000Z`), intervals as `d.hh:mm:ss.fffffff`, and
+references as the path of the instance they refer to.
 
 ## Building and testing
 

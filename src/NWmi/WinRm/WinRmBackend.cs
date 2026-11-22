@@ -315,17 +315,22 @@ internal sealed partial class WinRmBackend : IAsyncDisposable
     private static bool IsBestEffortFailure(Exception ex) =>
         ex is WsmanException or WmiException or HttpRequestException or OperationCanceledException;
 
+    /// <summary>The selectors that name <paramref name="instance"/>: its keys as a path holds them (a datetime as DMTF, a reference as its path).</summary>
+    internal static List<KeyValuePair<string, string>> KeySelectors(WmiInstance instance) =>
+    [
+        .. instance.KeyNames
+            .Select(k => instance.Properties[k]!)
+            .Where(p => p.Value is not null)
+            .Select(p => new KeyValuePair<string, string>(p.Name, WsmanClient.Format(WmiValues.ToKeyValue(p.Value!)))),
+    ];
+
     public async Task PutInstanceAsync(WmiInstance instance, WbemChangeFlags flags, CancellationToken cancellationToken)
     {
         var className = instance.SystemProperties.ClassName;
         var uri = _client.ResourceUri(className);
         var body = BuildInstanceElement(instance, uri, await SchemaAsync(className).ConfigureAwait(false),
             await EmbeddedSchemasAsync(instance.Properties.Select(p => p.Value)).ConfigureAwait(false));
-        var selectors = instance.KeyNames
-            .Select(k => instance.Properties[k]!)
-            .Where(p => p.Value is not null)
-            .Select(p => new KeyValuePair<string, string>(p.Name, WsmanClient.Format(p.Value!)))
-            .ToList();
+        var selectors = KeySelectors(instance);
 
         if (flags == WbemChangeFlags.CreateOnly)
         {
@@ -496,6 +501,8 @@ internal sealed partial class WinRmBackend : IAsyncDisposable
         foreach (var value in values)
             switch (value)
             {
+                case WmiInstance { IsReference: true }:
+                    break;
                 case WmiInstance embedded:
                     names.Add(embedded.SystemProperties.ClassName);
                     CollectEmbeddedClasses(embedded.Properties.Select(p => p.Value), names);
@@ -509,21 +516,27 @@ internal sealed partial class WinRmBackend : IAsyncDisposable
     }
 
     /// <summary>
-    /// A datetime is read as a DMTF string, as over DCOM, but the listener only takes it as <c>cim:Datetime</c> or <c>cim:Interval</c>: sent as
-    /// a string it fails schema validation. Only the class definition tells such a string from any other.
+    /// A value in the form the listener takes for its declared type. A datetime goes as <c>cim:Datetime</c> or
+    /// <c>cim:Interval</c>, so one given as a DMTF string is parsed: sent as a string it fails schema validation, and only
+    /// the class definition tells such a string from any other. A reference goes as its path, including one given as an
+    /// instance that was not read from a reference.
     /// </summary>
     internal static object? ForWire(object? value, string name, WsmanClassSchema? schema)
     {
-        if (schema is null || !schema.TryGetProperty(name, out var type) || type.CimType != "datetime")
+        if (schema is null || !schema.TryGetProperty(name, out var type))
             return value;
 
-        return value switch
+        return type.CimType switch
         {
-            string text => DmtfDateTime.Parse(text),
-            IEnumerable sequence => sequence.Cast<object?>()
-                .Select(e => e is string text ? DmtfDateTime.Parse(text) : e).ToArray(),
+            "datetime" => Each(value, e => e is string text ? DmtfDateTime.Parse(text) : e),
+            "reference" => Each(value, e => e is WmiInstance reference ? WmiValues.ReferencePath(reference) : e),
             _ => value,
         };
+
+        static object? Each(object? value, Func<object?, object?> convert) =>
+            value is string || value is not IEnumerable sequence
+                ? convert(value)
+                : sequence.Cast<object?>().Select(convert).ToArray();
     }
 
     /// <param name="parent">The element to add to.</param>
@@ -537,6 +550,9 @@ internal sealed partial class WinRmBackend : IAsyncDisposable
         {
             case null:
                 parent.Add(new XElement(name, new XAttribute(Wsman.Xsi + "nil", "true")));
+                break;
+            case WmiInstance { IsReference: true } reference:
+                parent.Add(TypedElement(name, WmiValues.ReferencePath(reference), "cimString"));
                 break;
             case WmiInstance embedded:
                 var nested = new XElement(name);
@@ -557,6 +573,9 @@ internal sealed partial class WinRmBackend : IAsyncDisposable
             case DateTimeOffset moment:
                 parent.Add(new XElement(name, new XElement(Wsman.Cim + "Datetime",
                     moment.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture))));
+                break;
+            case DateTime moment:
+                AppendValue(parent, name, new DateTimeOffset(moment.ToUniversalTime(), TimeSpan.Zero), embeddedSchemas);
                 break;
             case TimeSpan interval:
                 ArgumentOutOfRangeException.ThrowIfLessThan(interval, TimeSpan.Zero);

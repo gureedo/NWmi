@@ -84,7 +84,7 @@ public class WinRmTests
         var os = await wmi.GetInstanceAsync("Win32_OperatingSystem=@");
         Assert.NotNull(os);
         Assert.IsType<bool>(os["Primary"]);
-        Assert.Matches(@"^\d{14}\.\d{6}[+-]\d{3}$", (string)os["LastBootUpTime"]!);
+        Assert.Equal(DateTimeKind.Utc, Assert.IsType<DateTime>(os["LastBootUpTime"]).Kind);
 
         var system = await wmi.GetInstanceAsync("Win32_Process.Handle=\"4\"");
         Assert.Equal("System", system!["Name"]);
@@ -252,7 +252,7 @@ public class WinRmTests
         var adapters = await wmi.QueryAsync("SELECT IPAddress, DNSServerSearchOrder FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE")
             .ToListAsync();
         Assert.NotEmpty(adapters);
-        Assert.All(adapters.Where(a => a["DNSServerSearchOrder"] is not null), a => Assert.IsType<object?[]>(a["DNSServerSearchOrder"]));
+        Assert.All(adapters.Where(a => a["DNSServerSearchOrder"] is not null), a => Assert.IsType<string[]>(a["DNSServerSearchOrder"]));
     }
 
     [IntegrationFact]

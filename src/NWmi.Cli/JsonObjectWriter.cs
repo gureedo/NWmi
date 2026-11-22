@@ -6,7 +6,8 @@ namespace NWmi.Cli;
 
 /// <summary>
 /// One object as JSON: <c>__CLASS</c>, then every property by name. Integers keep full precision, embedded objects
-/// nest, arrays become JSON arrays, and a CIM datetime stays the string the server sent.
+/// nest, arrays become JSON arrays, a reference is the path of the instance it refers to, a timestamp is an ISO 8601
+/// string and an interval a <c>d.hh:mm:ss.fffffff</c> string.
 /// </summary>
 internal static class JsonObjectWriter
 {
@@ -17,13 +18,13 @@ internal static class JsonObjectWriter
         foreach (var property in obj.Properties)
         {
             json.WritePropertyName(property.Name);
-            WriteValue(json, property.Value);
+            WriteValue(json, property.Value, property.Type is WmiType.Reference or WmiType.ReferenceArray);
         }
 
         json.WriteEndObject();
     }
 
-    private static void WriteValue(Utf8JsonWriter json, object? value)
+    private static void WriteValue(Utf8JsonWriter json, object? value, bool isReference)
     {
         switch (value)
         {
@@ -36,11 +37,13 @@ internal static class JsonObjectWriter
             case ulong u: json.WriteNumberValue(u); break;
             case float f: json.WriteNumberValue(f); break;
             case double d: json.WriteNumberValue(d); break;
+            case DateTime moment: json.WriteStringValue(moment.ToString("O", CultureInfo.InvariantCulture)); break;
+            case WmiInstance reference when isReference: json.WriteStringValue(TextResultWriter.PathOf(reference)); break;
             case WmiInstance embedded: Write(json, embedded); break;
-            case object?[] items:
+            case Array items:
                 json.WriteStartArray();
                 foreach (var item in items)
-                    WriteValue(json, item);
+                    WriteValue(json, item, isReference);
 
                 json.WriteEndArray();
                 break;

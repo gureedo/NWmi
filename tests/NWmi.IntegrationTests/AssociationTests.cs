@@ -82,8 +82,10 @@ public class AssociationTests
             resultClass: "Win32_LogicalDiskRootDirectory", role: "GroupComponent", cancellationToken: ct));
         var root = Assert.Single(roots);
         Assert.Equal(["GroupComponent", "PartComponent"], root.KeyNames.Order());
-        Assert.EndsWith("Win32_LogicalDisk.DeviceID=\"C:\"", (string?)root["GroupComponent"]);
-        Assert.Contains("Win32_Directory.Name=", (string?)root["PartComponent"]);
+        var disk = Assert.IsType<WmiInstance>(root["GroupComponent"]);
+        Assert.Equal("Win32_LogicalDisk", disk.SystemProperties.ClassName);
+        Assert.Equal("C:", disk["DeviceID"]);
+        Assert.Equal("Win32_Directory", Assert.IsType<WmiInstance>(root["PartComponent"]).SystemProperties.ClassName);
 
         Assert.Empty(await ToListAsync(wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"C:\"",
             resultClass: "Win32_LogicalDiskRootDirectory", role: "PartComponent", cancellationToken: ct)));

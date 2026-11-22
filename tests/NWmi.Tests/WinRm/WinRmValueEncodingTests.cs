@@ -150,6 +150,6 @@ public class WinRmValueEncodingTests
 
         var written = Encode(moment).Elements().Single().Elements().Single().Value;
 
-        Assert.Equal("20260102030405.000000+120", WsmanObjectReader.ToDmtfDateTime(written));
+        Assert.Equal(moment.UtcDateTime, WsmanObjectReader.ParseDatetime(written));
     }
 }

@@ -208,7 +208,7 @@ public class ReviewFixTests
         {
             Assert.Equal("blue", found("Color"));
             Assert.Equal(7u, found("Count"));
-            Assert.Equal(["a", "b"], ((object?[])found("Tags")!).Cast<string>());
+            Assert.Equal(["a", "b"], Assert.IsType<string[]>(found("Tags")));
             Assert.Null(found("NoDefault"));
         }
 
@@ -305,6 +305,8 @@ public class ReviewFixTests
         const string Moment = "20260102030405.678000+120";
         const string Span = "00000001020304.500000:000";
         const string Path = "NWmiHolder.Id=\"holder\"";
+        var momentUtc = new DateTime(2026, 1, 2, 1, 4, 5, 678, DateTimeKind.Utc);
+        var span = new TimeSpan(1, 2, 3, 4, 500);
         await using var wmi = await ConnectWinRmAsync(@"root\default");
         await using var check = await ConnectAsync(new WmiConnectionOptions { Namespace = @"root\default" });
 
@@ -319,17 +321,17 @@ public class ReviewFixTests
         try
         {
             var stored = Assert.IsType<WmiInstance>((await check.GetInstanceAsync(Path))!["Inner"]);
-            Assert.Equal(Moment, stored["When"]);
-            Assert.Equal(Span, stored["Span"]);
+            Assert.Equal(momentUtc, stored["When"]);
+            Assert.Equal(span, stored["Span"]);
 
-            // Read back over WinRM, the embedded dates are DMTF strings, which the Put has to convert.
+            // Read back over WinRM, the embedded dates are a DateTime and a TimeSpan, which the Put has to convert.
             var read = (await wmi.GetInstanceAsync(Path))!;
             read["Label"] = "changed";
             await wmi.PutInstanceAsync(read, WbemChangeFlags.UpdateOnly);
 
             var after = (await check.GetInstanceAsync(Path))!;
             Assert.Equal("changed", after["Label"]);
-            Assert.Equal(Moment, Assert.IsType<WmiInstance>(after["Inner"])["When"]);
+            Assert.Equal(momentUtc, Assert.IsType<WmiInstance>(after["Inner"])["When"]);
         }
         finally
         {
@@ -418,10 +420,10 @@ public class ReviewFixTests
         {
             var stored = (await check.GetInstanceAsync(path))!;
             Report($"#7 winRm={winRm}: stored When '{stored["When"]}', Span '{stored["Span"]}'");
-            Assert.Equal(DmtfDateTime.Format(moment.ToUniversalTime()), DmtfDateTime.Format(((DateTimeOffset)DmtfDateTime.Parse((string)stored["When"]!)).ToUniversalTime()));
-            Assert.Equal(DmtfDateTime.Format(span), stored["Span"]);
+            Assert.Equal(moment.UtcDateTime, stored["When"]);
+            Assert.Equal(span, stored["Span"]);
 
-            // Read back through the same transport, the values are DMTF strings, which a Put has to accept.
+            // Read back through the same transport, the values are a DateTime and a TimeSpan, which a Put has to accept.
             var read = (await wmi.GetInstanceAsync(path))!;
             read["Label"] = "changed";
             await wmi.PutInstanceAsync(read, WbemChangeFlags.UpdateOnly);
