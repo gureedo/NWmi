@@ -31,12 +31,12 @@ public class WinRmTests
     public async Task A_query_returns_objects_with_their_keys()
     {
         await using var wmi = await ConnectAsync();
-        var rows = new List<WmiObject>();
+        var rows = new List<WmiInstance>();
         await foreach (var os in wmi.QueryAsync("SELECT Caption, Version FROM Win32_OperatingSystem"))
             rows.Add(os);
 
         var row = Assert.Single(rows);
-        Assert.Equal("Win32_OperatingSystem", row.ClassName);
+        Assert.Equal("Win32_OperatingSystem", row.SystemProperties.ClassName);
         Assert.Contains("Windows", (string?)row["Caption"]);
     }
 
@@ -69,8 +69,8 @@ public class WinRmTests
         await foreach (var process in wmi.QueryAsync("SELECT Handle, Name FROM Win32_Process"))
         {
             Assert.NotNull(process["Name"]);
-            Assert.Equal("Win32_Process", process.ClassName);
-            Assert.Contains("Handle", process.KeyPropertyNames);
+            Assert.Equal("Win32_Process", process.SystemProperties.ClassName);
+            Assert.Contains("Handle", process.KeyNames);
             count++;
         }
 
@@ -78,27 +78,29 @@ public class WinRmTests
     }
 
     [IntegrationFact]
-    public async Task GetObject_by_path_and_by_class()
+    public async Task GetInstance_by_path_and_GetClass()
     {
         await using var wmi = await ConnectAsync();
-        var os = await wmi.GetObjectAsync("Win32_OperatingSystem=@");
+        var os = await wmi.GetInstanceAsync("Win32_OperatingSystem=@");
         Assert.NotNull(os);
         Assert.IsType<bool>(os["Primary"]);
         Assert.Matches(@"^\d{14}\.\d{6}[+-]\d{3}$", (string)os["LastBootUpTime"]!);
 
-        var system = await wmi.GetObjectAsync("Win32_Process.Handle=\"4\"");
+        var system = await wmi.GetInstanceAsync("Win32_Process.Handle=\"4\"");
         Assert.Equal("System", system!["Name"]);
 
-        var cls = await wmi.GetObjectAsync("Win32_Process");
-        Assert.NotNull(cls);
-        Assert.Null(cls["Name"]);
+        var cls = await wmi.GetClassAsync("Win32_Process");
+        Assert.Equal("CIM_Process", cls.SuperClassName);
+        Assert.True(cls.Properties["Handle"]!.Flags.HasFlag(WmiFlags.Key | WmiFlags.ReadOnly));
+        Assert.Equal(WmiType.UInt32, cls.Methods["Create"]!.ReturnType);
+        Assert.Equal(WmiType.Instance, cls.Methods["Create"]!.Parameters["ProcessStartupInformation"]!.Type);
     }
 
     [IntegrationFact]
     public async Task A_missing_class_is_a_WmiException()
     {
         await using var wmi = await ConnectAsync();
-        var ex = await Assert.ThrowsAsync<WmiException>(() => wmi.GetObjectAsync("Win32_Nope=@"));
+        var ex = await Assert.ThrowsAsync<WmiException>(() => wmi.GetInstanceAsync("Win32_Nope=@"));
         Assert.Equal("InvalidClass", ex.StatusName);
     }
 
@@ -125,15 +127,15 @@ public class WinRmTests
             IntegrationSettings.Host!, Credential.Parse(IntegrationSettings.User!, IntegrationSettings.Password!),
             new WmiConnectionOptions { Namespace = "root" });
         await using var cimv2 = await root.OpenNamespaceAsync("cimv2");
-        var os = await cimv2.GetObjectAsync("Win32_OperatingSystem=@");
+        var os = await cimv2.GetInstanceAsync("Win32_OperatingSystem=@");
         Assert.NotNull(os);
-        Assert.Equal(@"root\cimv2", os.Namespace);
+        Assert.Equal(@"root\cimv2", os.SystemProperties.Namespace);
 
         var classes = 0;
         await foreach (var cls in cimv2.EnumerateClassesAsync("CIM_LogicalDisk"))
         {
             classes++;
-            Assert.NotNull(cls.ClassName);
+            Assert.NotNull(cls.Name);
         }
 
         Assert.True(classes >= 1);
@@ -144,7 +146,7 @@ public class WinRmTests
     {
         await using var wmi = await ConnectAsync();
         var name = "NWMI_WINRM_" + Guid.NewGuid().ToString("N")[..8];
-        var env = await wmi.GetObjectAsync("Win32_Environment");
+        var env = new WmiInstance(await wmi.GetClassAsync("Win32_Environment"));
         Assert.NotNull(env);
         env["Name"] = name;
         env["UserName"] = "<SYSTEM>";
@@ -153,26 +155,26 @@ public class WinRmTests
         var path = $"Win32_Environment.Name=\"{name}\",UserName=\"<SYSTEM>\"";
         try
         {
-            var created = await wmi.GetObjectAsync(path);
+            var created = await wmi.GetInstanceAsync(path);
             Assert.Equal("one", created!["VariableValue"]);
 
             created["VariableValue"] = "two";
             await wmi.PutInstanceAsync(created, WbemChangeFlags.UpdateOnly);
-            Assert.Equal("two", (await wmi.GetObjectAsync(path))!["VariableValue"]);
+            Assert.Equal("two", (await wmi.GetInstanceAsync(path))!["VariableValue"]);
         }
         finally
         {
             await wmi.DeleteInstanceAsync(path);
         }
 
-        await Assert.ThrowsAsync<WmiException>(() => wmi.GetObjectAsync(path));
+        await Assert.ThrowsAsync<WmiException>(() => wmi.GetInstanceAsync(path));
     }
 
     [IntegrationFact]
     public async Task An_embedded_object_parameter_reaches_the_provider()
     {
         await using var wmi = await ConnectAsync();
-        var startup = await wmi.GetObjectAsync("Win32_ProcessStartup");
+        var startup = new WmiInstance(await wmi.GetClassAsync("Win32_ProcessStartup"));
         Assert.NotNull(startup);
         startup["PriorityClass"] = 0x40u;
         startup["ShowWindow"] = (ushort)0;
@@ -191,7 +193,7 @@ public class WinRmTests
             object? priority = null;
             for (var i = 0; i < 20; i++)
             {
-                priority = (await wmi.GetObjectAsync($"Win32_Process.Handle=\"{pid}\""))!["Priority"];
+                priority = (await wmi.GetInstanceAsync($"Win32_Process.Handle=\"{pid}\""))!["Priority"];
                 if (!Equals(priority, 0u))
                     break;
 
@@ -224,9 +226,9 @@ public class WinRmTests
 
         await foreach (var ev in events)
         {
-            Assert.Equal("__InstanceCreationEvent", ev.ClassName);
-            Assert.IsType<WmiObject>(ev["TargetInstance"]);
-            Assert.Equal("ping.exe", (string?)((WmiObject)ev["TargetInstance"]!)["Name"], ignoreCase: true);
+            Assert.Equal("__InstanceCreationEvent", ev.SystemProperties.ClassName);
+            Assert.IsType<WmiInstance>(ev["TargetInstance"]);
+            Assert.Equal("ping.exe", (string?)((WmiInstance)ev["TargetInstance"]!)["Name"], ignoreCase: true);
             break;
         }
 

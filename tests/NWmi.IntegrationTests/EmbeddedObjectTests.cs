@@ -15,7 +15,7 @@ public class EmbeddedObjectTests
             IntegrationSettings.Host!, Credential.Parse(IntegrationSettings.User!, IntegrationSettings.Password!));
 
         // Win32_Process.Create(CommandLine, CurrentDirectory, ProcessStartupInformation): the last one is an object.
-        var startup = await wmi.GetObjectAsync("Win32_ProcessStartup");
+        var startup = new WmiInstance(await wmi.GetClassAsync("Win32_ProcessStartup"));
         Assert.NotNull(startup);
         startup["PriorityClass"] = IdlePriorityClass;
         startup["ShowWindow"] = (ushort)0;

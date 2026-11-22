@@ -128,4 +128,75 @@ internal static class WmiTypeMapping
 
     private static bool IsSet(IReadOnlyList<WmioQualifier> qualifiers, string name) =>
         qualifiers.Any(q => string.Equals(q.Name, name, StringComparison.OrdinalIgnoreCase) && q.Value is true);
+
+    /// <summary>
+    /// The public form of a qualifier set. <c>CIMTYPE</c> is left out: it restates the element's type (and, for a reference,
+    /// the class it refers to), and a WinRM class definition does not have it.
+    /// </summary>
+    public static IEnumerable<WmiQualifier> Qualifiers(IEnumerable<WmioQualifier> qualifiers) =>
+        qualifiers
+            .Where(q => !string.Equals(q.Name, "CIMTYPE", StringComparison.OrdinalIgnoreCase))
+            .Select(q => new WmiQualifier(q.Name, q.Value, ToWmiType(q.Type), FlavorFlags(q.Flavor)));
+
+    /// <summary>The class a reference refers to, from its <c>CIMTYPE</c> qualifier (<c>ref:Win32_Account</c>); null for a plain <c>ref</c>.</summary>
+    public static string? ReferenceClassName(IReadOnlyList<WmioQualifier> qualifiers)
+    {
+        return qualifiers
+                   .FirstOrDefault(q => string.Equals(q.Name, "CIMTYPE", StringComparison.OrdinalIgnoreCase))
+                   ?.Value is string cimType && cimType.StartsWith("ref:", StringComparison.OrdinalIgnoreCase) &&
+               cimType.Length > 4
+            ? cimType[4..]
+            : null;
+    }
+
+    public static WmiPropertyDeclaration Declaration(WmioProperty property, bool isParameter, string? server,
+        string? @namespace)
+    {
+        var flags = DeclarationFlags(property.Qualifiers, isParameter);
+        if (property.DefaultValue is null)
+            flags |= WmiFlags.NullValue;
+
+        return new WmiPropertyDeclaration(property.Name, ToWmiType(property.Type), flags,
+            new WmiReadOnlyKeyedCollection<WmiQualifier>(Qualifiers(property.Qualifiers), q => q.Name),
+            WmiInstance.FromWireValue(property.DefaultValue, server, @namespace),
+            property.Type.BaseType() == WbemType.Reference ? ReferenceClassName(property.Qualifiers) : null);
+    }
+
+    /// <summary>
+    /// A method from its input and output signatures: the parameters of both, a parameter that is in both listed once,
+    /// ordered by their <c>ID</c> qualifier; <c>ReturnValue</c> is the return type.
+    /// </summary>
+    public static WmiMethodDeclaration Method(WmioMethod method)
+    {
+        var input = method.DecodeInputSignature()?.Properties ?? [];
+        var output = method.DecodeOutputSignature()?.Properties ?? [];
+        var returnValue = output.FirstOrDefault(p =>
+            string.Equals(p.Name, "ReturnValue", StringComparison.OrdinalIgnoreCase));
+
+        var parameters = new List<(WmioProperty Property, WmiFlags Flags)>();
+        foreach (var property in input.Concat(output.Where(p => p != returnValue)))
+        {
+            var flags = DeclarationFlags(property.Qualifiers, isParameter: true);
+            var existing = parameters.FindIndex(p =>
+                string.Equals(p.Property.Name, property.Name, StringComparison.OrdinalIgnoreCase));
+            if (existing >= 0)
+                parameters[existing] = parameters[existing] with { Flags = parameters[existing].Flags | flags };
+            else
+                parameters.Add((property, flags));
+        }
+
+        var declarations = parameters
+            .OrderBy(p => p.Property.Qualifiers
+                .FirstOrDefault(q => string.Equals(q.Name, "ID", StringComparison.OrdinalIgnoreCase))?.Value is int id
+                ? id
+                : int.MaxValue)
+            .Select(p => new WmiMethodParameterDeclaration(p.Property.Name, ToWmiType(p.Property.Type), p.Flags,
+                new WmiReadOnlyKeyedCollection<WmiQualifier>(Qualifiers(p.Property.Qualifiers), q => q.Name),
+                p.Property.Type.BaseType() == WbemType.Reference ? ReferenceClassName(p.Property.Qualifiers) : null));
+
+        return new WmiMethodDeclaration(method.Name,
+            returnValue is null ? WmiType.Unknown : ToWmiType(returnValue.Type),
+            new WmiReadOnlyKeyedCollection<WmiMethodParameterDeclaration>(declarations, p => p.Name),
+            new WmiReadOnlyKeyedCollection<WmiQualifier>(Qualifiers(method.Qualifiers), q => q.Name));
+    }
 }

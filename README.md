@@ -16,8 +16,9 @@ await foreach (var os in wmi.QueryAsync("SELECT Caption, Version FROM Win32_Oper
 
 ## Features
 
-- **WQL queries**, streamed as `IAsyncEnumerable<WmiObject>`
-- **Classes and instances:** get an object by path, enumerate instances and classes, open child namespaces
+- **WQL queries**, streamed as `IAsyncEnumerable<WmiInstance>`
+- **Classes and instances:** get an instance by path or a class by name, enumerate instances and classes, read a
+  class's properties, methods and qualifiers, open child namespaces
 - **Methods:** call static and instance methods, with array and embedded-object parameters
 - **Writing:** create, update and delete instances
 - **Events:** event queries, delivered by polling
@@ -85,11 +86,12 @@ await using var winrm = await WmiConnection.ConnectWinRmAsync(
 await foreach (var service in wmi.QueryAsync("SELECT Name, State FROM Win32_Service WHERE StartMode = 'Auto'"))
     Console.WriteLine($"{service["Name"]}: {service["State"]}");
 
-var disk = await wmi.GetObjectAsync("Win32_LogicalDisk.DeviceID=\"C:\"");
-Console.WriteLine(disk?["FreeSpace"]);
+var disk = await wmi.GetInstanceAsync("Win32_LogicalDisk.DeviceID=\"C:\"");
+Console.WriteLine(disk["FreeSpace"]);
+Console.WriteLine(disk.SystemProperties.Path); // \\SERVER01\root\cimv2:Win32_LogicalDisk.DeviceID="C:"
 
 await foreach (var cls in wmi.EnumerateClassesAsync())
-    Console.WriteLine(cls.ClassName);
+    Console.WriteLine(cls.Name);
 
 // ASSOCIATORS OF / REFERENCES OF, over DCOM and WinRM alike
 await foreach (var dependency in wmi.GetAssociatorsAsync("Win32_Service.Name=\"WinRM\"",
@@ -101,24 +103,40 @@ await foreach (var link in wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"
     Console.WriteLine(link["Antecedent"]);
 ```
 
-Property values come back as CLR types (`uint`, `ulong`, `bool`, `string`, ...), arrays as `object?[]`, embedded
-objects as `WmiObject`, and CIM datetimes as the DMTF string the server sent.
+Property values come back as CLR types (`uint`, `ulong`, `bool`, `char`, `string`, ...), arrays as `object?[]`,
+embedded objects as `WmiInstance`, and CIM datetimes as the DMTF string the server sent. A not-found instance or class
+throws a `WmiException` with `WBEM_E_NOT_FOUND`.
 
-`GetProperty` and `GetProperties` also give each property's CIM type (`WmiType`) and flags (`WmiFlags`: `Key`,
-`ReadOnly`, `Required`, `NullValue`, `NotModified`, ...):
+`Properties` also gives each property's CIM type (`WmiType`), its flags (`WmiFlags`: `Key`, `ReadOnly`, `Required`,
+`NullValue`, `NotModified`, ...), and whether it has been set since it was read:
 
 ```csharp
-var handle = process.GetProperty("Handle");
+var handle = process.Properties["Handle"]!;
 Console.WriteLine($"{handle.Type} {handle.Flags}"); // String Property, Key, ReadOnly, NotModified
 ```
 
-Over WinRM the type comes from the class definition the server gives, and `ReadOnly` / `Required` are not known.
+A class (`WmiClass`) describes its properties, methods and qualifiers; every instance has one in `Class`:
+
+```csharp
+var processClass = await wmi.GetClassAsync("Win32_Process");
+foreach (var parameter in processClass.Methods["Create"]!.Parameters)
+    Console.WriteLine($"{parameter.Name} {parameter.Type} {parameter.Flags}"); // CommandLine String Parameter, In ...
+```
+
+Over DCOM the class an instance carries has no methods (the binary encoding leaves them out); `GetClassAsync` has them.
+A query that returns classes (`SELECT * FROM meta_class`) gives one instance per class, with no path and every value
+null; over WinRM its `Class` has only the property names, and `EnumerateClassesAsync` gives full definitions.
 
 ### Calling methods
 
 ```csharp
-var result = await wmi.InvokeMethodAsync(
-    "Win32_Process", "Create", new Dictionary<string, object?> { ["CommandLine"] = "notepad.exe" });
+var startup = new WmiInstance(await wmi.GetClassAsync("Win32_ProcessStartup")); // an embedded-object parameter
+startup["ShowWindow"] = (ushort)0;
+var result = await wmi.InvokeMethodAsync("Win32_Process", "Create", new Dictionary<string, object?>
+{
+    ["CommandLine"] = "notepad.exe",
+    ["ProcessStartupInformation"] = startup,
+});
 
 Console.WriteLine($"Return value {result?["ReturnValue"]}, process {result?["ProcessId"]}");
 ```
@@ -126,11 +144,17 @@ Console.WriteLine($"Return value {result?["ReturnValue"]}, process {result?["Pro
 ### Writing
 
 ```csharp
-var instance = (await wmi.GetObjectAsync("Win32_Environment.Name=\"MY_VAR\",UserName=\"<SYSTEM>\""))!;
+var created = new WmiInstance(await wmi.GetClassAsync("Win32_Environment"));
+created["Name"] = "MY_VAR";
+created["UserName"] = "<SYSTEM>";
+created["VariableValue"] = "first value";
+await wmi.PutInstanceAsync(created, WbemChangeFlags.CreateOnly);
+
+var instance = await wmi.GetInstanceAsync("Win32_Environment.Name=\"MY_VAR\",UserName=\"<SYSTEM>\"");
 instance["VariableValue"] = "new value";
 await wmi.PutInstanceAsync(instance, WbemChangeFlags.UpdateOnly);
 
-await wmi.DeleteInstanceAsync(instance.RelativePath);
+await wmi.DeleteInstanceAsync(instance.SystemProperties.RelativePath!);
 ```
 
 ### Events
@@ -138,7 +162,7 @@ await wmi.DeleteInstanceAsync(instance.RelativePath);
 ```csharp
 var query = "SELECT * FROM __InstanceCreationEvent WITHIN 2 WHERE TargetInstance ISA 'Win32_Process'";
 await foreach (var e in wmi.WatchAsync(query, cancellationToken: cancellationToken))
-    Console.WriteLine(((WmiObject)e["TargetInstance"]!)["Name"]);
+    Console.WriteLine(((WmiInstance)e["TargetInstance"]!)["Name"]);
 ```
 
 ### Refreshers

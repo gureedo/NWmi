@@ -282,7 +282,7 @@ internal static class CliApp
 
     /// <summary>Writes every object in the chosen format ("text", "json" or "jsonl"); returns whether there were any.</summary>
     internal static async Task<bool> WriteResultsAsync(
-        IAsyncEnumerable<WmiObject> results, string output, Stream stdout, TextWriter stdoutText,
+        IAsyncEnumerable<WmiInstance> results, string output, Stream stdout, TextWriter stdoutText,
         CancellationToken cancellationToken = default)
     {
         var any = false;

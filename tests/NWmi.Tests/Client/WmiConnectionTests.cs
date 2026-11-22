@@ -403,7 +403,7 @@ public class WmiConnectionTests
         Assert.Null(WmioObjectBlock.DecodeEncodingUnit(block.EncodeEncodingUnit()).Class!.FindProperty("sValue")!.DefaultValue);
     }
 
-    private static WmiObject StartupInfo(ushort showWindow, uint priorityClass, string? title = null)
+    private static WmiInstance StartupInfo(ushort showWindow, uint priorityClass, string? title = null)
     {
         var @class = new WmioClass(
             "Win32_ProcessStartup", [], [],
@@ -413,7 +413,7 @@ public class WmiConnectionTests
                 new WmioProperty("Title", WbemType.String, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
             ],
             []);
-        var obj = new WmiObject(WmioObjectBlock.ForClass(@class), "server01", @"root\cimv2");
+        var obj = new WmiInstance(WmiClass.FromWire(@class, "server01", @"root\cimv2"));
         obj["ShowWindow"] = showWindow;
         obj["PriorityClass"] = priorityClass;
         obj["Title"] = title;
@@ -424,14 +424,14 @@ public class WmiConnectionTests
         ("CommandLine", WbemType.String), ("CurrentDirectory", WbemType.String), ("ProcessStartupInformation", WbemType.Object));
 
     [Fact]
-    public void InferCimType_maps_a_WmiObject_to_an_embedded_object()
+    public void InferCimType_maps_a_WmiInstance_to_an_embedded_object()
     {
         Assert.Equal(WbemType.Object, WmiConnection.InferCimType(StartupInfo(0, 0)));
         Assert.Equal(WbemType.Object.AsArray(), WmiConnection.InferCimType(new[] { StartupInfo(0, 0), StartupInfo(1, 1) }));
     }
 
     [Fact]
-    public void BuildParametersBlock_sends_a_WmiObject_as_an_embedded_instance_of_its_class()
+    public void BuildParametersBlock_sends_a_WmiInstance_as_an_embedded_instance_of_its_class()
     {
         var block = WmiConnection.BuildParametersBlock(
             new Dictionary<string, object?>
@@ -471,7 +471,7 @@ public class WmiConnectionTests
         var signature = Signature(("Startups", WbemType.Object.AsArray()));
 
         var block = WmiConnection.BuildParametersBlock(
-            new Dictionary<string, object?> { ["Startups"] = new List<WmiObject> { StartupInfo(0, 1), StartupInfo(2, 3) } }, signature);
+            new Dictionary<string, object?> { ["Startups"] = new List<WmiInstance> { StartupInfo(0, 1), StartupInfo(2, 3) } }, signature);
 
         var elements = (object?[])WmioObjectBlock.DecodeEncodingUnit(block.EncodeEncodingUnit()).Class!.FindProperty("Startups")!.DefaultValue!;
         Assert.Equal(
@@ -485,7 +485,7 @@ public class WmiConnectionTests
         Assert.Throws<ArgumentException>(() => WmiConnection.BuildParametersBlock(
             new Dictionary<string, object?> { ["ProcessStartupInformation"] = "hidden" }, CreateSignature()));
         Assert.Throws<NotSupportedException>(() => WmiConnection.BuildParametersBlock(
-            new Dictionary<string, object?> { ["Startups"] = Array.Empty<WmiObject>() }));
+            new Dictionary<string, object?> { ["Startups"] = Array.Empty<WmiInstance>() }));
     }
 
     [Fact]

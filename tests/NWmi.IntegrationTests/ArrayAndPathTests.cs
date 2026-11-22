@@ -16,7 +16,7 @@ public class ArrayAndPathTests
             Credential.Parse(IntegrationSettings.User!, IntegrationSettings.Password!),
             new WmiConnectionOptions { Namespace = ns });
 
-    private static async Task<WmiObject> RegAsync(WmiConnection wmi, string method, Dictionary<string, object?> parameters)
+    private static async Task<WmiInstance> RegAsync(WmiConnection wmi, string method, Dictionary<string, object?> parameters)
     {
         var result = await wmi.InvokeMethodAsync("StdRegProv", method, parameters);
         Assert.NotNull(result);
@@ -71,26 +71,26 @@ public class ArrayAndPathTests
     public async Task Paths_the_server_returns_parse_and_name_the_same_instance()
     {
         await using var wmi = await ConnectAsync();
-        var disks = new List<WmiObject>();
+        var disks = new List<WmiInstance>();
         await foreach (var disk in wmi.QueryAsync("SELECT DeviceID FROM Win32_LogicalDisk"))
             disks.Add(disk);
 
         Assert.NotEmpty(disks);
         foreach (var disk in disks)
         {
-            var path = CimObjectPath.Parse((string)disk["__PATH"]!);
+            var path = CimObjectPath.Parse(disk.SystemProperties.Path!);
             Assert.Equal("Win32_LogicalDisk", path.ClassName);
             Assert.True(path.IsInstance);
             Assert.Equal(disk["DeviceID"], path["DeviceID"]);
             Assert.Equal(@"root\cimv2", path.Namespace, ignoreCase: true);
 
             // The parsed path addresses the very same instance.
-            var again = await wmi.GetObjectAsync(path.RelativePath);
+            var again = await wmi.GetInstanceAsync(path.RelativePath);
             Assert.Equal(disk["DeviceID"], again!["DeviceID"]);
         }
 
-        // A full path with a server and namespace works as an object path for GetObject too.
-        Assert.NotNull(await wmi.GetObjectAsync(disks[0].Path!));
-        Assert.NotNull(await wmi.GetObjectAsync(disks[0].ObjectPath.ToString()));
+        // A full path with a server and namespace works as well as a relative one.
+        Assert.NotNull(await wmi.GetInstanceAsync(disks[0].SystemProperties.Path!));
+        Assert.NotNull(await wmi.GetInstanceAsync(disks[0].SystemProperties.RelativePath!));
     }
 }

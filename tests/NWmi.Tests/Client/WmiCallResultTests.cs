@@ -129,9 +129,9 @@ public class WmiCallResultTests
         await using (wmi)
         await using (server)
         {
-            var found = await wmi.GetObjectAsync("NWmi_Test.Name=\"found\"", WbemGenericFlags.ReturnImmediately, TestContext.Current.CancellationToken);
+            var found = await wmi.GetInstanceAsync("NWmi_Test.Name=\"found\"", WbemGenericFlags.ReturnImmediately, TestContext.Current.CancellationToken);
 
-            Assert.Equal("found", found!["Name"]);
+            Assert.Equal("found", found["Name"]);
             Assert.Equal(1, Releases(server));
         }
     }
@@ -145,7 +145,7 @@ public class WmiCallResultTests
         await using (wmi)
         await using (server)
         {
-            var found = await wmi.GetObjectAsync("NWmi_Test.Name=\"found\"", cancellationToken: TestContext.Current.CancellationToken);
+            var found = await wmi.GetInstanceAsync("NWmi_Test.Name=\"found\"", cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.NotNull(found);
             Assert.Equal(1, Releases(server));
@@ -162,8 +162,8 @@ public class WmiCallResultTests
         await using (server)
         {
             var token = TestContext.Current.CancellationToken;
-            await wmi.GetObjectAsync("NWmi_Test", cancellationToken: token);
-            await wmi.GetObjectAsync("NWmi_Test", WbemGenericFlags.ReturnImmediately, token);
+            await wmi.GetInstanceAsync("NWmi_Test.Name=\"a\"", cancellationToken: token);
+            await wmi.GetInstanceAsync("NWmi_Test.Name=\"a\"", WbemGenericFlags.ReturnImmediately, token);
 
             var sent = server.Requests.Where(r => r.ObjectUuid == ServicesStd.Ipid && r.OpNum == OpGetObject).ToList();
             Assert.Equal(2, sent.Count);
@@ -181,7 +181,7 @@ public class WmiCallResultTests
         await using (server)
         {
             var ex = await Assert.ThrowsAsync<WmiException>(() =>
-                wmi.GetObjectAsync("NWmi_Test.Name=\"gone\"", WbemGenericFlags.ReturnImmediately, TestContext.Current.CancellationToken));
+                wmi.GetInstanceAsync("NWmi_Test.Name=\"gone\"", WbemGenericFlags.ReturnImmediately, TestContext.Current.CancellationToken));
 
             Assert.Equal(NotFound, ex.HResult);
             Assert.Equal(1, Releases(server));

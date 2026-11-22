@@ -18,25 +18,25 @@ public class WmiConnectionTests
     {
         await using var wmi = await ConnectAsync();
 
-        var results = new List<WmiObject>();
+        var results = new List<WmiInstance>();
         await foreach (var row in wmi.QueryAsync("SELECT Caption, Version FROM Win32_OperatingSystem"))
             results.Add(row);
 
         var os = Assert.Single(results);
-        Assert.Equal("Win32_OperatingSystem", os.ClassName);
+        Assert.Equal("Win32_OperatingSystem", os.SystemProperties.ClassName);
         Assert.NotNull(os["Caption"]);
         Assert.NotNull(os["Version"]);
     }
 
     [IntegrationFact]
-    public async Task GetObject_returns_a_class()
+    public async Task GetClass_returns_a_class()
     {
         await using var wmi = await ConnectAsync();
 
-        var cls = await wmi.GetObjectAsync("Win32_OperatingSystem");
+        var cls = await wmi.GetClassAsync("Win32_OperatingSystem");
 
-        Assert.NotNull(cls);
-        Assert.Equal("Win32_OperatingSystem", cls.ClassName);
+        Assert.Equal("Win32_OperatingSystem", cls.Name);
+        Assert.NotNull(cls.Methods["Reboot"]);
     }
 
     [IntegrationFact]
@@ -80,19 +80,19 @@ public class WmiConnectionTests
     {
         await using var wmi = await ConnectAsync(@"root\default");
 
-        var nsClass = await wmi.GetObjectAsync("__Namespace");
+        var nsClass = new WmiInstance(await wmi.GetClassAsync("__Namespace"));
         Assert.NotNull(nsClass);
         nsClass["Name"] = "nwmitest";
 
         await wmi.PutInstanceAsync(nsClass, WbemChangeFlags.CreateOnly);
 
-        var created = await wmi.GetObjectAsync("__Namespace.Name=\"nwmitest\"");
+        var created = await wmi.GetInstanceAsync("__Namespace.Name=\"nwmitest\"");
         Assert.NotNull(created);
         Assert.Equal("nwmitest", created["Name"]);
 
         await wmi.DeleteInstanceAsync("__Namespace.Name=\"nwmitest\"");
 
-        await Assert.ThrowsAsync<WmiException>(() => wmi.GetObjectAsync("__Namespace.Name=\"nwmitest\""));
+        await Assert.ThrowsAsync<WmiException>(() => wmi.GetInstanceAsync("__Namespace.Name=\"nwmitest\""));
     }
 
     [IntegrationFact]
@@ -113,7 +113,7 @@ public class WmiConnectionTests
     {
         var names = new List<string>();
         await foreach (var cls in wmi.EnumerateClassesAsync(superClass, shallow))
-            names.Add(cls.ClassName);
+            names.Add(cls.Name);
 
         return names;
     }
@@ -133,9 +133,9 @@ public class WmiConnectionTests
         await Assert.ThrowsAsync<WmiException>(() => root.OpenNamespaceAsync("no_such_namespace"));
     }
 
-    private static async Task<List<WmiObject>> Collect(IAsyncEnumerable<WmiObject> source)
+    private static async Task<List<WmiInstance>> Collect(IAsyncEnumerable<WmiInstance> source)
     {
-        var list = new List<WmiObject>();
+        var list = new List<WmiInstance>();
         await foreach (var o in source)
             list.Add(o);
 
@@ -164,9 +164,9 @@ public class WmiConnectionTests
 
         Assert.True(await first);
         var evt = enumerator.Current;
-        Assert.Equal("__InstanceCreationEvent", evt.ClassName);
-        var target = Assert.IsType<WmiObject>(evt["TargetInstance"]);
-        Assert.Equal("Win32_Process", target.ClassName);
+        Assert.Equal("__InstanceCreationEvent", evt.SystemProperties.ClassName);
+        var target = Assert.IsType<WmiInstance>(evt["TargetInstance"]);
+        Assert.Equal("Win32_Process", target.SystemProperties.ClassName);
     }
 
     [IntegrationTheory]
@@ -294,7 +294,7 @@ public class WmiConnectionTests
         var withProperties = 0;
         await foreach (var cls in wmi.EnumerateClassesAsync())
         {
-            names.Add(cls.ClassName);
+            names.Add(cls.Name);
             if (cls.Properties.Count > 0)
                 withProperties++;
         }

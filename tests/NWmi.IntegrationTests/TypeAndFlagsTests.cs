@@ -24,22 +24,21 @@ public class TypeAndFlagsTests
         await using var wmi = await ConnectAsync(winRm);
         var ct = TestContext.Current.CancellationToken;
 
-        WmiObject? process = null;
+        WmiInstance? process = null;
         await foreach (var o in wmi.QueryAsync("SELECT * FROM Win32_Process WHERE ProcessId = 4", cancellationToken: ct))
             process = o;
 
         Assert.NotNull(process);
-        var handle = process.GetProperty("Handle");
+        var handle = process.Properties["Handle"]!;
         Assert.Equal(WmiType.String, handle.Type);
         Assert.True(handle.Flags.HasFlag(WmiFlags.Property | WmiFlags.Key | WmiFlags.NotModified));
-        Assert.Equal(WmiType.UInt32, process.GetProperty("ProcessId").Type);
-        Assert.Equal(WmiType.DateTime, process.GetProperty("CreationDate").Type);
-        Assert.Equal(WmiType.UInt64, process.GetProperty("KernelModeTime").Type);
+        Assert.Equal(WmiType.UInt32, process.Properties["ProcessId"]!.Type);
+        Assert.Equal(WmiType.DateTime, process.Properties["CreationDate"]!.Type);
+        Assert.Equal(WmiType.UInt64, process.Properties["KernelModeTime"]!.Type);
         // The System process has no executable path.
-        Assert.True(process.GetProperty("ExecutablePath").Flags.HasFlag(WmiFlags.NullValue));
+        Assert.True(process.Properties["ExecutablePath"]!.Flags.HasFlag(WmiFlags.NullValue));
 
-        // WinRM does not read the class's qualifiers, so read-only is only known over DCOM.
-        Assert.Equal(!winRm, handle.Flags.HasFlag(WmiFlags.ReadOnly));
+        Assert.True(handle.Flags.HasFlag(WmiFlags.ReadOnly));
     }
 
     [IntegrationFact]
@@ -48,26 +47,26 @@ public class TypeAndFlagsTests
         await using var wmi = await ConnectAsync(false);
         var ct = TestContext.Current.CancellationToken;
 
-        var environment = await wmi.GetObjectAsync("Win32_Environment", cancellationToken: ct);
+        var environment = await wmi.GetClassAsync("Win32_Environment", cancellationToken: ct);
         Assert.NotNull(environment);
         // Name is key, read and write; UserName is key and read only (as MMI reports them).
-        Assert.Equal(WmiFlags.Property | WmiFlags.Key | WmiFlags.NullValue, environment.GetProperty("Name").Flags);
+        Assert.Equal(WmiFlags.Property | WmiFlags.Key | WmiFlags.NullValue, environment.Properties["Name"]!.Flags);
         Assert.Equal(WmiFlags.Property | WmiFlags.Key | WmiFlags.ReadOnly | WmiFlags.NullValue,
-            environment.GetProperty("UserName").Flags);
-        Assert.Equal(WmiType.Boolean, environment.GetProperty("SystemVariable").Type);
+            environment.Properties["UserName"]!.Flags);
+        Assert.Equal(WmiType.Boolean, environment.Properties["SystemVariable"]!.Type);
 
-        var association = await wmi.GetObjectAsync("Win32_SystemServices", cancellationToken: ct);
+        var association = await wmi.GetClassAsync("Win32_SystemServices", cancellationToken: ct);
         Assert.NotNull(association);
-        Assert.Equal(WmiType.Reference, association.GetProperty("PartComponent").Type);
+        Assert.Equal(WmiType.Reference, association.Properties["PartComponent"]!.Type);
 
-        var indication = await wmi.GetObjectAsync("CIM_ClassCreation", cancellationToken: ct);
+        var indication = await wmi.GetClassAsync("CIM_ClassCreation", cancellationToken: ct);
         Assert.NotNull(indication);
-        Assert.True(indication.GetProperty("ClassDefinition").Flags.HasFlag(WmiFlags.Required));
-        Assert.Equal(WmiType.Instance, indication.GetProperty("ClassDefinition").Type);
+        Assert.True(indication.Properties["ClassDefinition"]!.Flags.HasFlag(WmiFlags.Required));
+        Assert.Equal(WmiType.Instance, indication.Properties["ClassDefinition"]!.Type);
 
-        var creation = await wmi.GetObjectAsync("__InstanceCreationEvent", cancellationToken: ct);
+        var creation = await wmi.GetClassAsync("__InstanceCreationEvent", cancellationToken: ct);
         Assert.NotNull(creation);
-        Assert.Equal(WmiType.UInt8Array, creation.GetProperty("SECURITY_DESCRIPTOR").Type);
+        Assert.Equal(WmiType.UInt8Array, creation.Properties["SECURITY_DESCRIPTOR"]!.Type);
     }
 
     [IntegrationTheory]
@@ -88,11 +87,10 @@ public class TypeAndFlagsTests
             }, cancellationToken: ct);
 
         Assert.NotNull(output);
-        var returnValue = output.GetProperty("ReturnValue");
+        var returnValue = output.Properties["ReturnValue"]!;
         Assert.Equal(WmiType.UInt32, returnValue.Type);
         Assert.True(returnValue.Flags.HasFlag(WmiFlags.Parameter));
-        Assert.Equal(WmiType.String, output.GetProperty("sValue").Type);
-        if (!winRm)
-            Assert.True(returnValue.Flags.HasFlag(WmiFlags.Out));
+        Assert.Equal(WmiType.String, output.Properties["sValue"]!.Type);
+        Assert.True(returnValue.Flags.HasFlag(WmiFlags.Out));
     }
 }

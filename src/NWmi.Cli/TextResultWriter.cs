@@ -8,9 +8,9 @@ internal sealed class TextResultWriter(TextWriter output) : IResultWriter
 {
     public ValueTask BeginAsync() => ValueTask.CompletedTask;
 
-    public async ValueTask WriteAsync(WmiObject obj) =>
+    public async ValueTask WriteAsync(WmiInstance obj) =>
         await output
-            .WriteLineAsync(string.Join(" ", obj.Properties.Select(p => $"{p.Key}={Format(obj[p.Key])}")))
+            .WriteLineAsync(string.Join(" ", obj.Properties.Select(p => $"{p.Name}={Format(p.Value)}")))
             .ConfigureAwait(false);
 
     public ValueTask EndAsync() => ValueTask.CompletedTask;
@@ -22,9 +22,8 @@ internal sealed class TextResultWriter(TextWriter output) : IResultWriter
         null => "null",
         bool b => b ? "true" : "false",
         object?[] items => "[" + string.Join(", ", items.Select(Format)) + "]",
-        WmiObject embedded => "{" +
-                              string.Join(" ", embedded.Properties.Select(p => $"{p.Key}={Format(embedded[p.Key])}")) +
-                              "}",
+        WmiInstance embedded => "{" + string.Join(" ", embedded.Properties.Select(p => $"{p.Name}={Format(p.Value)}")) +
+                                "}",
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? string.Empty,
     };

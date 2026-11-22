@@ -12,9 +12,9 @@ public class EnumerateAndQualifierTests
             Credential.Parse(IntegrationSettings.User!, IntegrationSettings.Password!),
             new WmiConnectionOptions { Namespace = ns });
 
-    private static async Task<List<WmiObject>> Collect(IAsyncEnumerable<WmiObject> source)
+    private static async Task<List<WmiInstance>> Collect(IAsyncEnumerable<WmiInstance> source)
     {
-        var list = new List<WmiObject>();
+        var list = new List<WmiInstance>();
         await foreach (var o in source)
             list.Add(o);
 
@@ -31,9 +31,9 @@ public class EnumerateAndQualifierTests
 
         Assert.NotEmpty(enumerated);
         Assert.Equal(
-            queried.Select(d => d.Path).Order(StringComparer.OrdinalIgnoreCase),
-            enumerated.Select(d => d.Path).Order(StringComparer.OrdinalIgnoreCase));
-        Assert.All(enumerated, d => Assert.Equal("Win32_LogicalDisk", d.ClassName));
+            queried.Select(d => d.SystemProperties.Path).Order(StringComparer.OrdinalIgnoreCase),
+            enumerated.Select(d => d.SystemProperties.Path).Order(StringComparer.OrdinalIgnoreCase));
+        Assert.All(enumerated, d => Assert.Equal("Win32_LogicalDisk", d.SystemProperties.ClassName));
     }
 
     [IntegrationFact]
@@ -45,7 +45,7 @@ public class EnumerateAndQualifierTests
         var deep = await Collect(wmi.EnumerateInstancesAsync("CIM_LogicalDisk"));
         var shallow = await Collect(wmi.EnumerateInstancesAsync("CIM_LogicalDisk", shallow: true));
 
-        Assert.Contains(deep, d => d.ClassName == "Win32_LogicalDisk");
+        Assert.Contains(deep, d => d.SystemProperties.ClassName == "Win32_LogicalDisk");
         Assert.Empty(shallow);
     }
 
@@ -64,13 +64,13 @@ public class EnumerateAndQualifierTests
         var path = "__Namespace.Name=\"nwmiqualtest\"";
         try
         {
-            var template = await wmi.GetObjectAsync("__Namespace");
+            var template = new WmiInstance(await wmi.GetClassAsync("__Namespace"));
             Assert.NotNull(template);
             template["Name"] = "nwmiqualtest";
             template.SetPropertyQualifier("Name", "NWmiNote", "hello");
             await wmi.PutInstanceAsync(template, WbemChangeFlags.CreateOnly);
 
-            var read = await wmi.GetObjectAsync(path);
+            var read = await wmi.GetInstanceAsync(path);
             Assert.NotNull(read);
             Assert.Equal("nwmiqualtest", read["Name"]);
             var qualifiers = read.GetPropertyQualifiers("Name");

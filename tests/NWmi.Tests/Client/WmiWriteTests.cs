@@ -167,7 +167,7 @@ public class WmiWriteTests
         };
     }
 
-    private static WmiObject NewTestObject() => new(WmioObjectBlock.ForInstance(WmioInstance.Create(TestClass)), "server01", @"root\default");
+    private static WmiInstance NewTestObject() => WmiInstance.FromWire(WmioObjectBlock.ForInstance(WmioInstance.Create(TestClass)), "server01", @"root\default");
 
     [Fact]
     public async Task PutInstance_sends_array_properties_of_every_element_type()
@@ -364,7 +364,7 @@ public class WmiWriteTests
                     ["Name"] = [new WmioQualifier("Description", QualifierFlavor.None, WbemType.String, "d")],
                 });
             var wire = WmioObjectBlock.DecodeEncodingUnit(WmioObjectBlock.ForInstance(original).EncodeEncodingUnit());
-            var read = new WmiObject(wire, "server01", @"root\default");
+            var read = WmiInstance.FromWire(wire, "server01", @"root\default");
             Assert.Equal("d", read.GetPropertyQualifiers("Name")["Description"]);
 
             WmioInstance? sent = null;

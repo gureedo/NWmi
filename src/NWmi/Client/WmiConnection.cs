@@ -80,8 +80,8 @@ public sealed class WmiConnection : IAsyncDisposable
     /// <summary>
     /// Connects to <paramref name="host"/> over WinRM (WS-Management, HTTP port 5985 or HTTPS 5986) instead of DCOM, which
     /// needs only that one port. Authenticates with NTLM (a domain account works as <c>DOMAIN\user</c>); over plain HTTP
-    /// every message is sealed with the NTLM session key, as Windows requires. The WMI values come back as text
-    /// (see <see cref="WmiObject"/>): the protocol carries no CIM types. Not available over WinRM: refreshers.
+    /// every message is sealed with the NTLM session key, as Windows requires. The values are typed from the class definitions
+    /// the server gives (see <see cref="WmiInstance.Class"/>). Not available over WinRM: refreshers and call contexts.
     /// </summary>
     public static Task<WmiConnection> ConnectWinRmAsync(
         string host, Credential credential, WmiConnectionOptions? options = null,
@@ -381,9 +381,14 @@ public sealed class WmiConnection : IAsyncDisposable
         return new WmiRefresher(this, services);
     }
 
-    /// <summary>Runs a WQL query and streams the matching objects, fetching them in batches of <see cref="WmiConnectionOptions.BatchSize"/>.</summary>
+    /// <summary>
+    /// Runs a WQL query and streams the matching instances, fetching them in batches of <see cref="WmiConnectionOptions.BatchSize"/>.
+    /// A query that returns classes (<c>SELECT * FROM meta_class</c>, <c>ASSOCIATORS OF {...} WHERE SchemaOnly</c>) gives one
+    /// instance per class, with no path and every value null; its <see cref="WmiInstance.Class"/> is the class. Over WinRM such a
+    /// class has only its property names; <see cref="EnumerateClassesAsync"/> gives the full definitions.
+    /// </summary>
     /// <remarks>Disposing the enumerator early (breaking out of the loop, or cancelling) releases it on the server.</remarks>
-    public IAsyncEnumerable<WmiObject> QueryAsync(
+    public IAsyncEnumerable<WmiInstance> QueryAsync(
         string query, WbemGenericFlags flags = 0, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -396,6 +401,7 @@ public sealed class WmiConnection : IAsyncDisposable
                 flags | WbemGenericFlags.ReturnImmediately | WbemGenericFlags.ForwardOnly, context, ct),
             $"Query: {query}",
             stopWhenExhausted: true,
+            Wrap,
             cancellationToken);
     }
 
@@ -405,7 +411,7 @@ public sealed class WmiConnection : IAsyncDisposable
     /// <c>... WHERE __CLASS = 'className'</c>) without building a query.
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="className"/> is not a CIM class name (letters, digits and underscores, not starting with a digit).</exception>
-    public IAsyncEnumerable<WmiObject> EnumerateInstancesAsync(
+    public IAsyncEnumerable<WmiInstance> EnumerateInstancesAsync(
         string className, bool shallow = false, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(className);
@@ -422,6 +428,7 @@ public sealed class WmiConnection : IAsyncDisposable
             ct => Services.CreateInstanceEnumAsync(className, flags, context, ct),
             $"Enumerate instances of {className}",
             stopWhenExhausted: true,
+            Wrap,
             cancellationToken);
     }
 
@@ -430,9 +437,10 @@ public sealed class WmiConnection : IAsyncDisposable
 
     /// <summary>
     /// Streams the classes derived from <paramref name="superClass"/> (every class in the namespace when null
-    /// or empty), including indirect subclasses unless <paramref name="shallow"/> is set.
+    /// or empty), including indirect subclasses unless <paramref name="shallow"/> is set. <paramref name="superClass"/> itself is
+    /// not included; with no <paramref name="superClass"/>, shallow gives the classes that have no superclass.
     /// </summary>
-    public IAsyncEnumerable<WmiObject> EnumerateClassesAsync(
+    public IAsyncEnumerable<WmiClass> EnumerateClassesAsync(
         string? superClass = null, bool shallow = false, CancellationToken cancellationToken = default)
     {
         if (_winRm is not null)
@@ -445,6 +453,7 @@ public sealed class WmiConnection : IAsyncDisposable
             ct => Services.CreateClassEnumAsync(superClass, flags, context, ct),
             $"Enumerate classes of {superClass ?? "(all)"}",
             stopWhenExhausted: true,
+            WrapClass,
             cancellationToken);
     }
 
@@ -457,7 +466,7 @@ public sealed class WmiConnection : IAsyncDisposable
     /// </summary>
     /// <remarks>For the other clauses of the WQL statement (<c>ClassDefsOnly</c>, <c>KeysOnly</c>, qualifiers), or for schema queries on a class, run the statement with <see cref="QueryAsync"/>.</remarks>
     /// <exception cref="ArgumentException"><paramref name="objectPath"/> is not an instance path, or a filter is not a CIM class or property name.</exception>
-    public IAsyncEnumerable<WmiObject> GetAssociatorsAsync(
+    public IAsyncEnumerable<WmiInstance> GetAssociatorsAsync(
         string objectPath, string? associationClass = null, string? resultClass = null, string? role = null,
         string? resultRole = null, CancellationToken cancellationToken = default) =>
         QueryAsync(AssociationQuery("ASSOCIATORS", objectPath,
@@ -473,7 +482,7 @@ public sealed class WmiConnection : IAsyncDisposable
     /// </summary>
     /// <remarks>As for <see cref="GetAssociatorsAsync"/>, the rest of the WQL statement is available through <see cref="QueryAsync"/>.</remarks>
     /// <exception cref="ArgumentException"><paramref name="objectPath"/> is not an instance path, or a filter is not a CIM class or property name.</exception>
-    public IAsyncEnumerable<WmiObject> GetReferencesAsync(
+    public IAsyncEnumerable<WmiInstance> GetReferencesAsync(
         string objectPath, string? resultClass = null, string? role = null,
         CancellationToken cancellationToken = default) =>
         QueryAsync(AssociationQuery("REFERENCES", objectPath,
@@ -517,7 +526,7 @@ public sealed class WmiConnection : IAsyncDisposable
     /// <c>Next</c> call that simply timed out waiting for the next event, not one that ran out of events —
     /// so the stream runs until the caller disposes it or cancels, polling again after every empty wait.
     /// </summary>
-    public IAsyncEnumerable<WmiObject> WatchAsync(
+    public IAsyncEnumerable<WmiInstance> WatchAsync(
         string eventQuery, WbemGenericFlags flags = 0, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(eventQuery);
@@ -530,14 +539,16 @@ public sealed class WmiConnection : IAsyncDisposable
                 flags | WbemGenericFlags.ReturnImmediately | WbemGenericFlags.ForwardOnly, context, ct),
             $"Watch: {eventQuery}",
             stopWhenExhausted: false,
+            Wrap,
             cancellationToken,
             batchSize: 1); // events trickle in; a larger batch makes the server hold the first one until the batch fills or times out
     }
 
-    private async IAsyncEnumerable<WmiObject> RunQueryAsync(
+    private async IAsyncEnumerable<T> RunQueryAsync<T>(
         Func<CancellationToken, Task<EnumWbemClassObjectClient>> execute,
         string logMessage,
         bool stopWhenExhausted,
+        Func<WmioObjectBlock, T> wrap,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         uint? batchSize = null)
     {
@@ -563,7 +574,7 @@ public sealed class WmiConnection : IAsyncDisposable
                     hasMore = batch.HasMore;
                     foreach (var block in batch.Objects)
                         if (block is not null)
-                            yield return Wrap(block);
+                            yield return wrap(block);
                 }
             }
             finally
@@ -575,17 +586,52 @@ public sealed class WmiConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Retrieves a CIM class or instance by its CIM path: relative to this connection's namespace, or qualified with it
-    /// (<c>\\server\root\cimv2:Win32_Process.Handle="4"</c>, like <see cref="WmiObject.Path"/>).
+    /// Retrieves a CIM instance by its path: relative to this connection's namespace, or qualified with it
+    /// (<c>\\server\root\cimv2:Win32_Process.Handle="4"</c>, like <see cref="WmiSystemProperties.Path"/>). A singleton's path
+    /// ends in <c>=@</c> (<c>Win32_WmiSetting=@</c>).
     /// </summary>
-    public async Task<WmiObject?> GetObjectAsync(string objectPath, WbemGenericFlags flags = 0,
+    /// <exception cref="ArgumentException"><paramref name="objectPath"/> is the path of a class; use <see cref="GetClassAsync"/>.</exception>
+    /// <exception cref="WmiException">There is no such instance (<c>WBEM_E_NOT_FOUND</c>), or another failure.</exception>
+    public async Task<WmiInstance> GetInstanceAsync(string objectPath, WbemGenericFlags flags = 0,
         CancellationToken cancellationToken = default)
     {
-        if (_winRm is not null)
-            return await _winRm.GetObjectAsync(ToServerPath(objectPath), cancellationToken).ConfigureAwait(false);
+        ArgumentException.ThrowIfNullOrEmpty(objectPath);
+        var serverPath = ToServerPath(objectPath);
+        if (CimObjectPath.TryParse(serverPath, out var parsed) && parsed.IsClass)
+            throw new ArgumentException($"'{objectPath}' is the path of a class; get it with GetClassAsync.",
+                nameof(objectPath));
 
-        var block = await GetObjectBlockAsync(ToServerPath(objectPath), flags, cancellationToken).ConfigureAwait(false);
-        return block is null ? null : Wrap(block);
+        if (_winRm is not null)
+            return await _winRm.GetInstanceAsync(serverPath, cancellationToken).ConfigureAwait(false);
+
+        var block = await GetObjectBlockAsync(serverPath, flags, cancellationToken).ConfigureAwait(false);
+        return block is null
+            ? throw new WmiException(unchecked((int)WbemStatus.NotFound),
+                $"GetObject returned no object for {objectPath}.")
+            : Wrap(block);
+    }
+
+    /// <summary>Retrieves a CIM class's definition: its properties, methods and qualifiers.</summary>
+    /// <param name="className">The class name.</param>
+    /// <param name="flags"><see cref="WbemGenericFlags.UseAmendedQualifiers"/> includes the localized qualifiers (<c>Description</c>, ...). Not used over WinRM.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="ArgumentException"><paramref name="className"/> is not a CIM class name.</exception>
+    /// <exception cref="WmiException">There is no such class (<c>WBEM_E_NOT_FOUND</c>), or another failure.</exception>
+    public async Task<WmiClass> GetClassAsync(string className, WbemGenericFlags flags = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(className);
+        if (!IsClassName(className))
+            throw new ArgumentException($"'{className}' is not a CIM class name.", nameof(className));
+
+        if (_winRm is not null)
+            return await _winRm.GetClassAsync(className, cancellationToken).ConfigureAwait(false);
+
+        var block = await GetObjectBlockAsync(className, flags, cancellationToken).ConfigureAwait(false);
+        return block is { IsClass: true }
+            ? WrapClass(block)
+            : throw new WmiException(unchecked((int)WbemStatus.NotFound),
+                $"GetObject returned no class for {className}.");
     }
 
     /// <summary>GetObject, waiting on the call result when the server answers with one instead of the object, and always releasing it.</summary>
@@ -610,8 +656,9 @@ public sealed class WmiConnection : IAsyncDisposable
     /// <see cref="WbemCallResultClient.GetCallStatusAsync"/> for that; skipping it silently swallowed a real
     /// failure (e.g. WBEM_E_INVALID_CLASS) that only showed up later as the created instance not existing.
     /// </summary>
+    /// <exception cref="InvalidOperationException">Over DCOM: <paramref name="instance"/> has no binary class definition (it was built on the client, or read over WinRM).</exception>
     public async Task PutInstanceAsync(
-        WmiObject instance, WbemChangeFlags changeFlags = WbemChangeFlags.CreateOrUpdate,
+        WmiInstance instance, WbemChangeFlags changeFlags = WbemChangeFlags.CreateOrUpdate,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(instance);
@@ -696,12 +743,12 @@ public sealed class WmiConnection : IAsyncDisposable
     /// method's signature cannot be found (e.g. it declares no input parameters at all).
     /// <para>
     /// A parameter may be a scalar, an array or any other sequence (<c>string[]</c>, <c>byte[]</c>, <c>List&lt;int&gt;</c>),
-    /// or an embedded object: a <see cref="WmiObject"/>, such as an instance of <c>Win32_ProcessStartup</c> for
-    /// <c>Win32_Process.Create</c>'s <c>ProcessStartupInformation</c>. Get one by fetching its class with
-    /// <see cref="GetObjectAsync"/>, set its properties, and pass it.
+    /// or an embedded object: a <see cref="WmiInstance"/>, such as an instance of <c>Win32_ProcessStartup</c> for
+    /// <c>Win32_Process.Create</c>'s <c>ProcessStartupInformation</c>. Make one from its class
+    /// (<see cref="WmiInstance(WmiClass)"/> with <see cref="GetClassAsync"/>), set its properties, and pass it.
     /// </para>
     /// </remarks>
-    public async Task<WmiObject?> InvokeMethodAsync(
+    public async Task<WmiInstance?> InvokeMethodAsync(
         string objectPath,
         string methodName,
         IReadOnlyDictionary<string, object?>? parameters = null,
@@ -766,7 +813,14 @@ public sealed class WmiConnection : IAsyncDisposable
         return path.RelativePath;
     }
 
-    internal WmiObject Wrap(WmioObjectBlock block) => new(block, _host, _namespacePath);
+    internal WmiInstance Wrap(WmioObjectBlock block) => WmiInstance.FromWire(block, _host, _namespacePath);
+
+    private WmiClass WrapClass(WmioObjectBlock block) =>
+        block.Class is { } @class
+            ? WmiClass.FromWire(@class, block.Decoration?.Server ?? _host,
+                block.Decoration?.Namespace ?? _namespacePath)
+            : throw new WmiException(unchecked((int)WbemStatus.Failed),
+                "The server returned an instance where a class was expected.");
 
     /// <summary>
     /// Looks up <paramref name="methodName"/>'s declared input-parameter class on the class behind
@@ -781,10 +835,7 @@ public sealed class WmiConnection : IAsyncDisposable
             : objectPath.Split('.', 2)[0];
         var classBlock = await GetObjectBlockAsync(className, 0, cancellationToken).ConfigureAwait(false);
         var method = classBlock?.Class?.Methods.FirstOrDefault(m => m.Name == methodName);
-        if (method is null || method.InputSignatureRaw.Length == 0)
-            return null;
-
-        return WmioObjectBlock.Decode(new WmioReader(method.InputSignatureRaw)).Class;
+        return method?.DecodeInputSignature();
     }
 
     /// <summary>
@@ -885,11 +936,11 @@ public sealed class WmiConnection : IAsyncDisposable
     /// <summary>The class of an embedded-object parameter (or of the first object in an array of them), for its <c>object:Class</c> CIMTYPE.</summary>
     private static string EmbeddedClassName(object? value) => value switch
     {
-        WmiObject embedded => embedded.ClassName,
-        IEnumerable sequence => sequence.OfType<WmiObject>().FirstOrDefault()?.ClassName
+        WmiInstance embedded => embedded.SystemProperties.ClassName,
+        IEnumerable sequence => sequence.OfType<WmiInstance>().FirstOrDefault()?.SystemProperties.ClassName
                                 ?? throw new NotSupportedException(
                                     "An array of embedded objects needs at least one element to name its class."),
-        _ => throw new NotSupportedException("An embedded-object parameter needs a WmiObject."),
+        _ => throw new NotSupportedException("An embedded-object parameter needs a WmiInstance."),
     };
 
     /// <summary>
@@ -939,8 +990,9 @@ public sealed class WmiConnection : IAsyncDisposable
         : type == typeof(ulong) ? WbemType.Uint64
         : type == typeof(float) ? WbemType.Real32
         : type == typeof(double) ? WbemType.Real64
+        : type == typeof(char) ? WbemType.Char16
         : type == typeof(DateTimeOffset) || type == typeof(TimeSpan) ? WbemType.DateTime
-        : type == typeof(WmiObject) ? WbemType.Object
+        : type == typeof(WmiInstance) ? WbemType.Object
         : throw new NotSupportedException($"Cannot infer a CIM type for a method parameter value of type {type}.");
 
     /// <summary>
@@ -981,10 +1033,10 @@ public sealed class WmiConnection : IAsyncDisposable
             WbemType.String or WbemType.Reference => Convert.ToString(value, CultureInfo.InvariantCulture),
             WbemType.Object => value switch
             {
-                WmiObject embedded => embedded.ToInstanceBlock(),
+                WmiInstance embedded => embedded.ToInstanceBlock(),
                 WmioObjectBlock block => block,
                 _ => throw new ArgumentException(
-                    $"A parameter declared as an embedded object needs a WmiObject (get one with GetObjectAsync on its class), not {value.GetType()}."),
+                    $"A value declared as an embedded object needs a WmiInstance (make one from a class from GetClassAsync), not {value.GetType()}."),
             },
             _ => value,
         };

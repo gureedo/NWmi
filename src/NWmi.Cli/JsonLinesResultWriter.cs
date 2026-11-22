@@ -10,7 +10,7 @@ internal sealed class JsonLinesResultWriter(Stream stdout) : IResultWriter
 
     public ValueTask BeginAsync() => ValueTask.CompletedTask;
 
-    public ValueTask WriteAsync(WmiObject obj)
+    public ValueTask WriteAsync(WmiInstance obj)
     {
         JsonObjectWriter.Write(_json, obj);
         _json.Flush();

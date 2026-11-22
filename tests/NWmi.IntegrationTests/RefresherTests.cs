@@ -26,7 +26,7 @@ public class RefresherTests
         Assert.NotNull(memory.Instance);
         Assert.True(Convert.ToUInt64(memory.Instance["AvailableBytes"], CultureInfo.InvariantCulture) > 0);
         Assert.Contains(processes.Objects, p => (string?)p["Name"] == "Idle");
-        Assert.Equal("Win32_PerfRawData_PerfProc_Process", processes.Objects[0].ClassName);
+        Assert.Equal("Win32_PerfRawData_PerfProc_Process", processes.Objects[0].SystemProperties.ClassName);
 
         await refresher.RemoveAsync(processes);
         await refresher.RefreshAsync();

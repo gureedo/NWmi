@@ -40,7 +40,7 @@ public class ReviewFixTests
             File.AppendAllText(path, $"[{IntegrationSettings.Host}] {line}{Environment.NewLine}");
     }
 
-    private static async Task<int> CountAsync(IAsyncEnumerable<WmiObject> source)
+    private static async Task<int> CountAsync(IAsyncEnumerable<WmiInstance> source)
     {
         var count = 0;
         await foreach (var _ in source)
@@ -196,20 +196,27 @@ public class ReviewFixTests
             Assert.Skip("Set NWMI_TEST_INHERIT=1 once the classes exist.");
 
         await using var wmi = await ConnectAsync(new WmiConnectionOptions { Namespace = @"root\default" });
-        foreach (var path in new[] { "NWmiBase", "NWmiDerived", "NWmiDerived.Id=\"one\"" })
+        var one = await wmi.GetInstanceAsync("NWmiDerived.Id=\"one\"");
+        var readers = new List<Func<string, object?>> { name => one[name] };
+        foreach (var className in new[] { "NWmiBase", "NWmiDerived" })
         {
-            var found = (await wmi.GetObjectAsync(path))!;
-            Assert.Equal("blue", found["Color"]);
-            Assert.Equal(7u, found["Count"]);
-            Assert.Equal(["a", "b"], ((object?[])found["Tags"]!).Cast<string>());
-            Assert.Null(found["NoDefault"]);
+            var @class = await wmi.GetClassAsync(className);
+            readers.Add(name => @class.Properties[name]!.Value);
+        }
+
+        foreach (var found in readers)
+        {
+            Assert.Equal("blue", found("Color"));
+            Assert.Equal(7u, found("Count"));
+            Assert.Equal(["a", "b"], ((object?[])found("Tags")!).Cast<string>());
+            Assert.Null(found("NoDefault"));
         }
 
         // A value set on the instance still wins, and one the instance leaves alone survives a trip through PutInstance.
-        var instance = (await wmi.GetObjectAsync("NWmiDerived.Id=\"one\""))!;
+        var instance = (await wmi.GetInstanceAsync("NWmiDerived.Id=\"one\""))!;
         instance["NoDefault"] = "set";
         await wmi.PutInstanceAsync(instance, WbemChangeFlags.UpdateOnly);
-        var back = (await wmi.GetObjectAsync("NWmiDerived.Id=\"one\""))!;
+        var back = (await wmi.GetInstanceAsync("NWmiDerived.Id=\"one\""))!;
         back["NoDefault"] = null;
         await wmi.PutInstanceAsync(back, WbemChangeFlags.UpdateOnly);
         Assert.Equal("set", instance["NoDefault"]);
@@ -228,10 +235,10 @@ public class ReviewFixTests
             Assert.Skip("Set NWMI_TEST_LEAK_ROUNDS (e.g. 500) to measure this.");
 
         await using var observer = await ConnectAsync(new WmiConnectionOptions());
-        var host = Convert.ToUInt32((await observer.GetObjectAsync("Win32_Service.Name=\"Winmgmt\""))!["ProcessId"], CultureInfo.InvariantCulture);
+        var host = Convert.ToUInt32((await observer.GetInstanceAsync("Win32_Service.Name=\"Winmgmt\""))!["ProcessId"], CultureInfo.InvariantCulture);
 
         async Task<int> HandlesAsync() =>
-            Convert.ToInt32((await observer.GetObjectAsync($"Win32_Process.Handle=\"{host}\""))!["HandleCount"], CultureInfo.InvariantCulture);
+            Convert.ToInt32((await observer.GetInstanceAsync($"Win32_Process.Handle=\"{host}\""))!["HandleCount"], CultureInfo.InvariantCulture);
 
         var before = await HandlesAsync();
         await using var wmi = await ConnectAsync(new WmiConnectionOptions());
@@ -301,28 +308,28 @@ public class ReviewFixTests
         await using var wmi = await ConnectWinRmAsync(@"root\default");
         await using var check = await ConnectAsync(new WmiConnectionOptions { Namespace = @"root\default" });
 
-        var inner = (await wmi.GetObjectAsync("NWmiDates"))!;
+        var inner = new WmiInstance(await wmi.GetClassAsync("NWmiDates"));
         inner["Id"] = "inner";
         inner["When"] = Moment;
         inner["Span"] = Span;
-        var holder = (await wmi.GetObjectAsync("NWmiHolder"))!;
+        var holder = new WmiInstance(await wmi.GetClassAsync("NWmiHolder"));
         holder["Id"] = "holder";
         holder["Inner"] = inner;
         await wmi.PutInstanceAsync(holder, WbemChangeFlags.CreateOnly);
         try
         {
-            var stored = Assert.IsType<WmiObject>((await check.GetObjectAsync(Path))!["Inner"]);
+            var stored = Assert.IsType<WmiInstance>((await check.GetInstanceAsync(Path))!["Inner"]);
             Assert.Equal(Moment, stored["When"]);
             Assert.Equal(Span, stored["Span"]);
 
             // Read back over WinRM, the embedded dates are DMTF strings, which the Put has to convert.
-            var read = (await wmi.GetObjectAsync(Path))!;
+            var read = (await wmi.GetInstanceAsync(Path))!;
             read["Label"] = "changed";
             await wmi.PutInstanceAsync(read, WbemChangeFlags.UpdateOnly);
 
-            var after = (await check.GetObjectAsync(Path))!;
+            var after = (await check.GetInstanceAsync(Path))!;
             Assert.Equal("changed", after["Label"]);
-            Assert.Equal(Moment, Assert.IsType<WmiObject>(after["Inner"])["When"]);
+            Assert.Equal(Moment, Assert.IsType<WmiInstance>(after["Inner"])["When"]);
         }
         finally
         {
@@ -402,24 +409,24 @@ public class ReviewFixTests
         var moment = new DateTimeOffset(2026, 1, 2, 3, 4, 5, 678, TimeSpan.FromHours(2));
         var span = new TimeSpan(1, 2, 3, 4, 500);
 
-        var created = (await wmi.GetObjectAsync("NWmiDates"))!;
+        var created = new WmiInstance(await wmi.GetClassAsync("NWmiDates"));
         created["Id"] = id;
         created["When"] = moment;
         created["Span"] = span;
         await wmi.PutInstanceAsync(created, WbemChangeFlags.CreateOnly);
         try
         {
-            var stored = (await check.GetObjectAsync(path))!;
+            var stored = (await check.GetInstanceAsync(path))!;
             Report($"#7 winRm={winRm}: stored When '{stored["When"]}', Span '{stored["Span"]}'");
             Assert.Equal(DmtfDateTime.Format(moment.ToUniversalTime()), DmtfDateTime.Format(((DateTimeOffset)DmtfDateTime.Parse((string)stored["When"]!)).ToUniversalTime()));
             Assert.Equal(DmtfDateTime.Format(span), stored["Span"]);
 
             // Read back through the same transport, the values are DMTF strings, which a Put has to accept.
-            var read = (await wmi.GetObjectAsync(path))!;
+            var read = (await wmi.GetInstanceAsync(path))!;
             read["Label"] = "changed";
             await wmi.PutInstanceAsync(read, WbemChangeFlags.UpdateOnly);
 
-            var after = (await check.GetObjectAsync(path))!;
+            var after = (await check.GetInstanceAsync(path))!;
             Assert.Equal("changed", after["Label"]);
             Assert.Equal(stored["When"], after["When"]);
             Assert.Equal(stored["Span"], after["Span"]);
@@ -506,7 +513,7 @@ public class ReviewFixTests
             async Task SetServiceAsync(string method, string state)
             {
                 await dcom.InvokeMethodAsync("Win32_Service.Name=\"WinRM\"", method, cancellationToken: token);
-                for (var i = 0; i < 60 && (string?)(await dcom.GetObjectAsync("Win32_Service.Name=\"WinRM\""))!["State"] != state; i++)
+                for (var i = 0; i < 60 && (string?)(await dcom.GetInstanceAsync("Win32_Service.Name=\"WinRM\""))!["State"] != state; i++)
                     await Task.Delay(500, token);
             }
 
@@ -522,7 +529,7 @@ public class ReviewFixTests
                 Assert.Equal(0, Convert.ToInt32(result!["ReturnValue"], CultureInfo.InvariantCulture));
 
                 await Task.Delay(3000, token);
-                var written = (await dcom.GetObjectAsync(filePath))!;
+                var written = (await dcom.GetInstanceAsync(filePath))!;
                 Report($"#4 the file holds {written["FileSize"]} bytes; one run writes 3");
                 Assert.Equal(3ul, Convert.ToUInt64(written["FileSize"], CultureInfo.InvariantCulture));
             }

@@ -1,12 +1,28 @@
 namespace NWmi.Wmio;
 
-/// <summary>One method of a class (MS-WMIO 2.2.41). Input and output signatures are kept as raw, undecoded bytes for v1.</summary>
+/// <summary>
+/// One method of a class (MS-WMIO 2.2.41). Input and output signatures are kept as raw ObjectBlock bytes; each decodes to a
+/// <c>__PARAMETERS</c> class.
+/// </summary>
 internal sealed record WmioMethod(
     string Name,
     bool DefinedInParentClass,
     uint MethodOrigin,
     byte[] InputSignatureRaw,
-    byte[] OutputSignatureRaw);
+    byte[] OutputSignatureRaw)
+{
+    /// <summary>The method's own qualifiers (<c>Static</c>, <c>Implemented</c>, ...).</summary>
+    public IReadOnlyList<WmioQualifier> Qualifiers { get; init; } = [];
+
+    /// <summary>The input parameters as a <c>__PARAMETERS</c> class, or null when the method takes none.</summary>
+    public WmioClass? DecodeInputSignature() => DecodeSignature(InputSignatureRaw);
+
+    /// <summary>The output parameters and <c>ReturnValue</c> as a <c>__PARAMETERS</c> class, or null when there are none.</summary>
+    public WmioClass? DecodeOutputSignature() => DecodeSignature(OutputSignatureRaw);
+
+    private static WmioClass? DecodeSignature(byte[] raw) =>
+        raw.Length == 0 ? null : WmioObjectBlock.Decode(new WmioReader(raw)).Class;
+}
 
 /// <summary>
 /// A decoded CIM class (MS-WMIO 2.2.14, ClassAndMethodsPart): its name, superclass chain, qualifiers,
@@ -154,17 +170,18 @@ internal sealed record WmioClass(
         var count = block.ReadUInt16();
         block.ReadUInt16(); // MethodCountPadding: ignored
 
-        var descriptors = new (uint NameRef, byte Flags, uint Origin, uint InputRef, uint OutputRef)[count];
+        var descriptors =
+            new (uint NameRef, byte Flags, uint Origin, uint QualifiersRef, uint InputRef, uint OutputRef)[count];
         for (var i = 0; i < count; i++)
         {
             var nameRef = block.ReadUInt32();
             var flags = block.ReadByte();
             block.ReadBytes(3); // MethodPadding: ignored
             var origin = block.ReadUInt32();
-            block.ReadUInt32(); // HeapQualifierSetRef: not modeled in v1
+            var qualifiersRef = block.ReadUInt32();
             var inputRef = block.ReadUInt32();
             var outputRef = block.ReadUInt32();
-            descriptors[i] = (nameRef, flags, origin, inputRef, outputRef);
+            descriptors[i] = (nameRef, flags, origin, qualifiersRef, inputRef, outputRef);
         }
 
         var heap = WmioHeap.Read(block);
@@ -175,7 +192,12 @@ internal sealed record WmioClass(
                 ((MethodFlags)d.Flags & MethodFlags.OriginPropagated) != 0,
                 d.Origin,
                 ReadSignatureBlock(heap, d.InputRef),
-                ReadSignatureBlock(heap, d.OutputRef)));
+                ReadSignatureBlock(heap, d.OutputRef))
+            {
+                Qualifiers = WmioHeap.IsNull(d.QualifiersRef)
+                    ? []
+                    : WmioQualifier.ReadSet(heap.Resolve(d.QualifiersRef), heap),
+            });
 
         return methods;
     }
@@ -287,7 +309,7 @@ internal sealed record WmioClass(
                 block.WriteByte((byte)(method.DefinedInParentClass ? MethodFlags.OriginPropagated : MethodFlags.None));
                 block.WriteBytes(new byte[3]); // MethodPadding
                 block.WriteUInt32(method.MethodOrigin);
-                block.WriteUInt32(WmioHeap.NullRef); // HeapQualifierSetRef: not modeled in v1, written as absent
+                block.WriteUInt32(WmioHeap.NullRef); // HeapQualifierSetRef: a client never sends a method's qualifiers
                 block.WriteUInt32(WriteSignatureBlock(methodHeap, method.InputSignatureRaw));
                 block.WriteUInt32(WriteSignatureBlock(methodHeap, method.OutputSignatureRaw));
             }

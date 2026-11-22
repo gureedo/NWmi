@@ -95,8 +95,9 @@ public class WinRmValueEncodingTests
     public void Without_a_schema_a_value_is_left_alone() =>
         Assert.Equal("20260102030405.000000+000", WinRmBackend.ForWire("20260102030405.000000+000", "When", null));
 
-    private static WmiObject Embedded(string className, string property, object? value) =>
-        new(className, new Dictionary<string, object?> { [property] = value }, [], "host", @"root\default");
+    private static WmiInstance Embedded(string className, string property, object? value) =>
+        WmiInstance.FromWinRm(className, new Dictionary<string, object?> { [property] = value }, null, [], "host",
+            @"root\default");
 
     private static IEnumerable<XElement> DatetimesIn(XElement parent) => parent.Descendants(Wsman.Cim + "Datetime");
 

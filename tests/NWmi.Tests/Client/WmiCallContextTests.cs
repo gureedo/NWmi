@@ -176,7 +176,7 @@ public class WmiCallContextTests
             objRef is null ? null : Assert.IsType<CustomObjRef>(ObjRef.Parse(objRef)).ObjectData;
     }
 
-    private static async Task Drain(IAsyncEnumerable<WmiObject> source)
+    private static async Task Drain<T>(IAsyncEnumerable<T> source)
     {
         await foreach (var _ in source)
         {
@@ -195,7 +195,7 @@ public class WmiCallContextTests
             var ct = TestContext.Current.CancellationToken;
 
             await Drain(wmi.QueryAsync("SELECT * FROM NWmi_Test", cancellationToken: ct));
-            await wmi.GetObjectAsync("NWmi_Test", cancellationToken: ct);
+            await wmi.GetInstanceAsync("NWmi_Test.Name=\"a\"", cancellationToken: ct);
 
             Assert.Equal(2, recorder.Context.Count);
             Assert.All(recorder.Context.Values, c => Assert.Null(c));
@@ -217,8 +217,8 @@ public class WmiCallContextTests
             await Drain(wmi.QueryAsync("SELECT * FROM NWmi_Test", cancellationToken: ct)); // 20
             await Drain(wmi.EnumerateInstancesAsync("NWmi_Test", cancellationToken: ct)); // 18
             await Drain(wmi.EnumerateClassesAsync("NWmi_Test", cancellationToken: ct)); // 12
-            var instance = await wmi.GetObjectAsync("NWmi_Test", cancellationToken: ct); // 6
-            await wmi.PutInstanceAsync(instance!, cancellationToken: ct); // 14
+            var instance = await wmi.GetInstanceAsync("NWmi_Test.Name=\"a\"", cancellationToken: ct); // 6
+            await wmi.PutInstanceAsync(instance, cancellationToken: ct); // 14
             await wmi.DeleteInstanceAsync("NWmi_Test.Name=\"x\"", ct); // 16
 
             foreach (var opnum in new ushort[] { 6, 12, 14, 16, 18, 20 })
@@ -268,7 +268,7 @@ public class WmiCallContextTests
             server.CallHandler = recorder.Handle;
 
             Assert.Equal(64, wmi.Context!.Values["__ProviderArchitecture"]);
-            await wmi.GetObjectAsync("NWmi_Test", cancellationToken: TestContext.Current.CancellationToken);
+            await wmi.GetInstanceAsync("NWmi_Test.Name=\"a\"", cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(Arch64, recorder.Context[6]);
         }
@@ -286,20 +286,20 @@ public class WmiCallContextTests
             var ct = TestContext.Current.CancellationToken;
 
             wmi.Context = Context64;
-            await wmi.GetObjectAsync("A", cancellationToken: ct);
+            await wmi.GetInstanceAsync("A=@", cancellationToken: ct);
             Assert.Equal(Arch64, recorder.Context[6]);
 
             wmi.Context = WmiCallContext.Empty.With("__ProviderArchitecture", 32);
-            await wmi.GetObjectAsync("A", cancellationToken: ct);
+            await wmi.GetInstanceAsync("A=@", cancellationToken: ct);
             Assert.Equal(WmiContext.Empty.SetInt32("__ProviderArchitecture", 32).ToBufferBytes(), recorder.Context[6]);
 
             wmi.Context = null;
-            await wmi.GetObjectAsync("A", cancellationToken: ct);
+            await wmi.GetInstanceAsync("A=@", cancellationToken: ct);
             Assert.Null(recorder.Context[6]);
 
             wmi.Context = Context64;
             wmi.Context = WmiCallContext.Empty; // empty is the same as none
-            await wmi.GetObjectAsync("A", cancellationToken: ct);
+            await wmi.GetInstanceAsync("A=@", cancellationToken: ct);
             Assert.Null(recorder.Context[6]);
         }
     }

@@ -4,7 +4,7 @@ namespace NWmi.Client;
 
 /// <summary>
 /// One object or class enumeration registered with a <see cref="WmiRefresher"/>. Its values are filled in by
-/// <see cref="WmiRefresher.RefreshAsync"/>; before the first refresh <see cref="Object"/> is null and
+/// <see cref="WmiRefresher.RefreshAsync"/>; before the first refresh <see cref="Instance"/> is null and
 /// <see cref="Objects"/> is empty.
 /// </summary>
 public sealed class WmiRefreshItem
@@ -31,10 +31,10 @@ public sealed class WmiRefreshItem
     public bool IsHighPerformance { get; }
 
     /// <summary>The latest value of a single object; null before the first refresh, and for an enumeration.</summary>
-    public WmiObject? Instance { get; internal set; }
+    public WmiInstance? Instance { get; internal set; }
 
     /// <summary>The latest instances of an enumeration; for a single object, empty.</summary>
-    public IReadOnlyList<WmiObject> Objects { get; internal set; } = [];
+    public IReadOnlyList<WmiInstance> Objects { get; internal set; } = [];
 
     /// <summary>True when the server reported an error for this item in the last refresh (the previous values are kept).</summary>
     public bool LastRefreshFailed { get; internal set; }

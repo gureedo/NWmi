@@ -9,7 +9,7 @@ internal interface IResultWriter : IAsyncDisposable
     ValueTask BeginAsync();
 
     /// <summary>Writes one result object.</summary>
-    ValueTask WriteAsync(WmiObject obj);
+    ValueTask WriteAsync(WmiInstance obj);
 
     /// <summary>Writes whatever follows the last object.</summary>
     ValueTask EndAsync();

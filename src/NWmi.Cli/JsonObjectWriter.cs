@@ -10,14 +10,14 @@ namespace NWmi.Cli;
 /// </summary>
 internal static class JsonObjectWriter
 {
-    public static void Write(Utf8JsonWriter json, WmiObject obj)
+    public static void Write(Utf8JsonWriter json, WmiInstance obj)
     {
         json.WriteStartObject();
-        json.WriteString("__CLASS", obj.ClassName);
-        foreach (var name in obj.Properties.Keys)
+        json.WriteString("__CLASS", obj.SystemProperties.ClassName);
+        foreach (var property in obj.Properties)
         {
-            json.WritePropertyName(name);
-            WriteValue(json, obj[name]);
+            json.WritePropertyName(property.Name);
+            WriteValue(json, property.Value);
         }
 
         json.WriteEndObject();
@@ -36,7 +36,7 @@ internal static class JsonObjectWriter
             case ulong u: json.WriteNumberValue(u); break;
             case float f: json.WriteNumberValue(f); break;
             case double d: json.WriteNumberValue(d); break;
-            case WmiObject embedded: Write(json, embedded); break;
+            case WmiInstance embedded: Write(json, embedded); break;
             case object?[] items:
                 json.WriteStartArray();
                 foreach (var item in items)

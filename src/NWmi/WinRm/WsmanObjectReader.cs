@@ -8,17 +8,18 @@ using NWmi.Wmi;
 namespace NWmi.WinRm;
 
 /// <summary>
-/// Turns the XML instances of a WS-Management reply into <see cref="WmiObject"/>s. The XML carries no CIM types,
-/// so a value is: null for <c>xsi:nil</c>, a <see cref="bool"/> for <c>true</c>/<c>false</c>, a DMTF string for a
-/// <c>cim:Datetime</c> or <c>cim:Interval</c> (as the binary protocol gives), a path string for a reference, a
-/// <see cref="WmiObject"/> for a nested instance, an <c>object?[]</c> for a repeated element, and otherwise the text.
-/// A one-element array cannot be told from a scalar and reads as one.
+/// Turns the XML instances of a WS-Management reply into <see cref="WmiInstance"/>s. The XML carries no CIM types: the
+/// class definition (<see cref="WsmanClassSchema"/>) types the values when the server gives one. Without it a value is: null
+/// for <c>xsi:nil</c>, a <see cref="bool"/> for <c>true</c>/<c>false</c>, a DMTF string for a <c>cim:Datetime</c> or
+/// <c>cim:Interval</c> (as the binary protocol gives), a path string for a reference, a <see cref="WmiInstance"/> for a nested
+/// instance, an <c>object?[]</c> for a repeated element, and otherwise the text. A one-element array cannot then be told
+/// from a scalar and reads as one.
 /// </summary>
 internal static partial class WsmanObjectReader
 {
-    public static WmiObject Read(XElement instance, XElement? endpointReference, IReadOnlyList<string>? knownKeys,
+    public static WmiInstance Read(XElement instance, XElement? endpointReference, IReadOnlyList<string>? knownKeys,
         string? server, string? namespacePath, string? fallbackClassName = null,
-        Func<string, WsmanClassSchema?>? schemas = null)
+        Func<string, WsmanClassSchema?>? schemas = null, bool isClassRow = false)
     {
         var keys = endpointReference is null
             ? knownKeys ?? []
@@ -26,8 +27,9 @@ internal static partial class WsmanObjectReader
         var className = instance.Name.LocalName == "XmlFragment"
             ? fallbackClassName ?? "XmlFragment"
             : ClassNameOf(instance);
-        var (values, types) = ReadProperties(instance, className, schemas, server, namespacePath);
-        return new WmiObject(className, values, keys, server, namespacePath, types);
+        var values = ReadProperties(instance, className, schemas, server, namespacePath);
+        return WmiInstance.FromWinRm(className, values, schemas?.Invoke(className)?.Class, keys, server, namespacePath,
+            isClassRow);
     }
 
     /// <summary>
@@ -72,12 +74,11 @@ internal static partial class WsmanObjectReader
         return type.EndsWith("_Type", StringComparison.Ordinal) ? type[..^5] : null;
     }
 
-    private static (List<KeyValuePair<string, object?>> Values, Dictionary<string, WmiType>? Types) ReadProperties(
+    private static List<KeyValuePair<string, object?>> ReadProperties(
         XElement instance, string className, Func<string, WsmanClassSchema?>? schemas, string? server, string? ns)
     {
         var schema = schemas?.Invoke(className);
         var result = new List<KeyValuePair<string, object?>>();
-        var types = schema is null ? null : new Dictionary<string, WmiType>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in instance.Elements().GroupBy(e => e.Name.LocalName))
         {
             var items = group.ToList();
@@ -96,11 +97,9 @@ internal static partial class WsmanObjectReader
                     : items.Select(i => ReadValue(i, type, schemas, server, ns)).ToArray();
 
             result.Add(new KeyValuePair<string, object?>(group.Key, value));
-            if (types is not null && type is { } declared)
-                types[group.Key] = WmiTypeMapping.FromCimXml(declared.CimType, declared.IsArray);
         }
 
-        return (result, types);
+        return result;
     }
 
     private static bool IsNil(XElement element) => (string?)element.Attribute(Wsman.Xsi + "nil") is "true" or "1";
@@ -138,8 +137,8 @@ internal static partial class WsmanObjectReader
             return ReferencePath(element);
 
         var nestedClass = TypeClassOf(element) ?? element.Name.LocalName;
-        var (values, types) = ReadProperties(element, nestedClass, schemas, server, ns);
-        return new WmiObject(nestedClass, values, [], server, ns, types);
+        var values = ReadProperties(element, nestedClass, schemas, server, ns);
+        return WmiInstance.FromWinRm(nestedClass, values, schemas?.Invoke(nestedClass)?.Class, [], server, ns);
     }
 
     /// <summary>A reference is an endpoint reference; its resource URI names the class and its selectors the keys.</summary>

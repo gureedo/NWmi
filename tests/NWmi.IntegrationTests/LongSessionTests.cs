@@ -93,7 +93,7 @@ public class LongSessionTests
         }
     }
 
-    private static async Task<WmiObject> Reg(WmiConnection wmi, string method, Dictionary<string, object?> parameters)
+    private static async Task<WmiInstance> Reg(WmiConnection wmi, string method, Dictionary<string, object?> parameters)
     {
         var result = await wmi.InvokeMethodAsync("StdRegProv", method, parameters);
         Assert.NotNull(result);
@@ -101,9 +101,9 @@ public class LongSessionTests
         return result;
     }
 
-    private static async Task<List<WmiObject>> Collect(IAsyncEnumerable<WmiObject> source)
+    private static async Task<List<WmiInstance>> Collect(IAsyncEnumerable<WmiInstance> source)
     {
-        var list = new List<WmiObject>();
+        var list = new List<WmiInstance>();
         await foreach (var o in source)
             list.Add(o);
 

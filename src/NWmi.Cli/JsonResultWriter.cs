@@ -14,7 +14,7 @@ internal sealed class JsonResultWriter(Stream stdout) : IResultWriter
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask WriteAsync(WmiObject obj)
+    public ValueTask WriteAsync(WmiInstance obj)
     {
         JsonObjectWriter.Write(_json, obj);
         return ValueTask.CompletedTask;

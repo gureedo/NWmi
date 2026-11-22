@@ -101,7 +101,7 @@ public sealed class WmiRefresher : IAsyncDisposable
         foreach (var item in active.Where(i => !i.IsHighPerformance))
             if (item.IsEnumeration)
             {
-                var rows = new List<WmiObject>();
+                var rows = new List<WmiInstance>();
                 await foreach (var row in _connection.QueryAsync($"SELECT * FROM {item.Target}",
                                    cancellationToken: cancellationToken).ConfigureAwait(false))
                     rows.Add(row);
@@ -109,7 +109,7 @@ public sealed class WmiRefresher : IAsyncDisposable
                 item.Objects = rows;
             }
             else
-                item.Instance = await _connection.GetObjectAsync(item.Target, cancellationToken: cancellationToken)
+                item.Instance = await _connection.GetInstanceAsync(item.Target, cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
     }
 
@@ -132,7 +132,7 @@ public sealed class WmiRefresher : IAsyncDisposable
         }
     }
 
-    private WmiObject Wrap(WmioInstance instance) => _connection.Wrap(WmioObjectBlock.ForInstance(instance));
+    private WmiInstance Wrap(WmioInstance instance) => _connection.Wrap(WmioObjectBlock.ForInstance(instance));
 
     /// <summary>Stops refreshing <paramref name="item"/>.</summary>
     public async Task RemoveAsync(WmiRefreshItem item, CancellationToken cancellationToken = default)

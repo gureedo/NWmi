@@ -423,10 +423,10 @@ public class CliAppTests
 
     // ---- output formats ----------------------------------------------------------------------------------------
 
-    private static WmiObject Make(string className, params (string Name, object? Value)[] values) =>
-        new(className, values.Select(v => KeyValuePair.Create(v.Name, v.Value)), [], null, null);
+    private static WmiInstance Make(string className, params (string Name, object? Value)[] values) =>
+        WmiInstance.FromWinRm(className, values.Select(v => KeyValuePair.Create(v.Name, v.Value)), null, [], null, null);
 
-    private static async IAsyncEnumerable<WmiObject> Stream(params WmiObject[] objects)
+    private static async IAsyncEnumerable<WmiInstance> Stream(params WmiInstance[] objects)
     {
         foreach (var o in objects)
             yield return o;
@@ -434,7 +434,7 @@ public class CliAppTests
         await Task.CompletedTask;
     }
 
-    private static async Task<(bool Any, string Json, string Text)> WriteAsync(string format, params WmiObject[] objects)
+    private static async Task<(bool Any, string Json, string Text)> WriteAsync(string format, params WmiInstance[] objects)
     {
         using var stdout = new MemoryStream();
         var text = new StringWriter();

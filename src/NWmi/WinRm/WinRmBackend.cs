@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using NWmi.Client;
@@ -14,7 +15,7 @@ namespace NWmi.WinRm;
 /// as WS-Management requests against the Windows WMI provider (Get/Put/Create/Delete for instances, Enumerate and
 /// Pull for queries, Invoke for methods, a pull subscription for events).
 /// </summary>
-internal sealed class WinRmBackend : IAsyncDisposable
+internal sealed partial class WinRmBackend : IAsyncDisposable
 {
     private readonly WsmanClient _client;
     private readonly string _host;
@@ -55,21 +56,9 @@ internal sealed class WinRmBackend : IAsyncDisposable
 
     private TimeSpan ClientTimeout => _client.Timeout;
 
-    public async Task<WmiObject?> GetObjectAsync(string objectPath, CancellationToken cancellationToken)
+    public async Task<WmiInstance> GetInstanceAsync(string objectPath, CancellationToken cancellationToken)
     {
         var path = Parse(objectPath);
-        if (path.IsClass)
-        {
-            // WS-Man has no "get class"; a meta_class query returns the class with all values null.
-            var query =
-                $"SELECT * FROM meta_class WHERE __CLASS = '{path.ClassName.Replace("'", "''", StringComparison.Ordinal)}'";
-            await foreach (var cls in EnumerateAsync(query, cancellationToken).ConfigureAwait(false))
-                return cls;
-
-            throw new WmiException(unchecked((int)WbemStatus.InvalidClass),
-                $"The class {path.ClassName} does not exist");
-        }
-
         var body = await _client
             .CallAsync(_client.ResourceUri(path.ClassName), Wsman.ActionGet, Selectors(path), null, cancellationToken)
             .ConfigureAwait(false);
@@ -79,39 +68,95 @@ internal sealed class WinRmBackend : IAsyncDisposable
             path.ClassName, schemas);
     }
 
-    public IAsyncEnumerable<WmiObject> QueryAsync(string query, CancellationToken cancellationToken) =>
+    /// <summary>A class's definition from the CIM-XML resource; the listener's "the class does not exist" is not-found, as over DCOM.</summary>
+    public async Task<WmiClass> GetClassAsync(string className, CancellationToken cancellationToken)
+    {
+        WsmanClassSchema schema;
+        try
+        {
+            schema = await FetchClassAsync(className, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WmiException ex) when (ex.HResult == unchecked((int)WbemStatus.InvalidClass))
+        {
+            throw new WmiException(unchecked((int)WbemStatus.NotFound),
+                $"The class {className} does not exist in the {_client.Namespace} namespace");
+        }
+
+        _schemas[className] = Task.FromResult<WsmanClassSchema?>(schema);
+        return schema.Class;
+    }
+
+    public IAsyncEnumerable<WmiInstance> QueryAsync(string query, CancellationToken cancellationToken) =>
         EnumerateAsync(query, cancellationToken);
 
     /// <summary>WS-Management has no class-enumeration call that takes a depth, so this is the equivalent WQL; <paramref name="className"/> is already checked to be a plain identifier.</summary>
-    public IAsyncEnumerable<WmiObject> EnumerateInstancesAsync(
+    public IAsyncEnumerable<WmiInstance> EnumerateInstancesAsync(
         string className, bool shallow, CancellationToken cancellationToken) =>
         EnumerateAsync(
             shallow ? $"SELECT * FROM {className} WHERE __CLASS = '{className}'" : $"SELECT * FROM {className}",
             cancellationToken);
 
-    public IAsyncEnumerable<WmiObject> EnumerateClassesAsync(
-        string? superClass, bool shallow, CancellationToken cancellationToken)
+    /// <summary>
+    /// The subclasses of <paramref name="superClass"/> (every class when null), from the CIM-XML resource, which gives each
+    /// class's full definition. The listener ignores <c>DeepInheritance</c> and always lists every descendant, so shallow keeps
+    /// the direct subclasses here.
+    /// </summary>
+    public async IAsyncEnumerable<WmiClass> EnumerateClassesAsync(
+        string? superClass, bool shallow, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var escaped = superClass?.Replace("'", "''", StringComparison.Ordinal);
-        var query = string.IsNullOrEmpty(superClass)
-            ? "SELECT * FROM meta_class"
-            : shallow
-                ? $"SELECT * FROM meta_class WHERE __SUPERCLASS = '{escaped}'"
-                : $"SELECT * FROM meta_class WHERE __this ISA '{escaped}'";
-        return EnumerateAsync(query, cancellationToken, skipClass: shallow ? null : superClass);
+        List<KeyValuePair<string, string>> selectors = [new("__cimnamespace", _client.Namespace)];
+        if (!string.IsNullOrEmpty(superClass))
+            selectors.Add(new KeyValuePair<string, string>("ClassName", superClass));
+
+        var enumerate = new XElement(Wsman.Enumeration + "Enumerate",
+            new XElement(Wsman.Man + "OptimizeEnumeration"),
+            new XElement(Wsman.Man + "MaxElements", _batchSize));
+        await foreach (var (item, _) in EnumerateItemsAsync(CimXmlResource, selectors, enumerate, ClassOptions,
+                           cancellationToken).ConfigureAwait(false))
+        {
+            if (item.Name.LocalName != "CLASS")
+                continue;
+
+            var @class = WsmanClassSchema.Parse(item, _host, _namespacePath).Class;
+            if (!shallow || string.Equals(@class.SuperClassName ?? string.Empty, superClass ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase))
+                yield return @class;
+        }
     }
 
-    private async IAsyncEnumerable<WmiObject> EnumerateAsync(
-        string query, [EnumeratorCancellation] CancellationToken cancellationToken, string? skipClass = null)
+    /// <summary>A query whose results are classes, not instances (<c>meta_class</c>, <c>SchemaOnly</c>, <c>ClassDefsOnly</c>).</summary>
+    internal static bool IsSchemaQuery(string query) => SchemaQuery().IsMatch(query);
+
+    [GeneratedRegex(@"\b(meta_class|SchemaOnly|ClassDefsOnly)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex SchemaQuery();
+
+    private async IAsyncEnumerable<WmiInstance> EnumerateAsync(
+        string query, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var uri = _client.ResourceUri("*");
         var enumerate = new XElement(Wsman.Enumeration + "Enumerate",
             new XElement(Wsman.Man + "OptimizeEnumeration"),
             new XElement(Wsman.Man + "MaxElements", _batchSize),
             new XElement(Wsman.Man + "Filter", new XAttribute("Dialect", Wsman.WqlDialect), query),
             new XElement(Wsman.Man + "EnumerationMode", "EnumerateObjectAndEPR"));
+        var queryClass = WsmanObjectReader.ClassOfQuery(query);
+        var isSchema = IsSchemaQuery(query);
+        await foreach (var (instance, epr) in EnumerateItemsAsync(_client.ResourceUri("*"), null, enumerate, null,
+                           cancellationToken).ConfigureAwait(false))
+        {
+            // Classes hold no values worth typing, and there can be thousands of them.
+            var schemas = isSchema ? null : await SchemasForAsync(instance, queryClass).ConfigureAwait(false);
+            yield return WsmanObjectReader.Read(instance, epr, null, _host, _namespacePath, queryClass, schemas,
+                isSchema);
+        }
+    }
 
-        var body = await _client.CallAsync(uri, Wsman.ActionEnumerate, null, enumerate, cancellationToken)
+    /// <summary>Enumerate, then Pull until the end of the sequence; an enumeration left early is released.</summary>
+    private async IAsyncEnumerable<(XElement Item, XElement? Epr)> EnumerateItemsAsync(
+        string uri, List<KeyValuePair<string, string>>? selectors, XElement enumerate, IEnumerable<WsmanOption>? options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var body = await _client
+            .CallAsync(uri, Wsman.ActionEnumerate, selectors, enumerate, cancellationToken, options: options)
             .ConfigureAwait(false);
         var response = body.Element(Wsman.Enumeration + "EnumerateResponse")
                        ?? throw new WsmanException("The Enumerate reply has no EnumerateResponse.");
@@ -124,18 +169,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
                 context = response.Element(Wsman.Enumeration + "EnumerationContext")?.Value.Trim();
                 finished = Child(response, "EndOfSequence") is not null || string.IsNullOrEmpty(context);
                 foreach (var item in Child(response, "Items")?.Elements() ?? [])
-                {
-                    var (instance, epr) = SplitItem(item);
-                    var queryClass = WsmanObjectReader.ClassOfQuery(query);
-                    // Class definitions (meta_class) hold no values worth typing, and there can be thousands of them.
-                    var schemas = query.Contains("meta_class", StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : await SchemasForAsync(instance, queryClass).ConfigureAwait(false);
-                    var obj = WsmanObjectReader.Read(instance, epr, null, _host, _namespacePath, queryClass, schemas);
-                    if (skipClass is null ||
-                        !string.Equals(obj.ClassName, skipClass, StringComparison.OrdinalIgnoreCase))
-                        yield return obj;
-                }
+                    yield return SplitItem(item);
 
                 if (finished)
                     yield break;
@@ -144,7 +178,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
                 var pull = new XElement(Wsman.Enumeration + "Pull",
                     new XElement(Wsman.Enumeration + "EnumerationContext", context),
                     new XElement(Wsman.Enumeration + "MaxElements", _batchSize));
-                var next = await _client.CallAsync(uri, Wsman.ActionPull, null, pull, cancellationToken)
+                var next = await _client.CallAsync(uri, Wsman.ActionPull, selectors, pull, cancellationToken)
                     .ConfigureAwait(false);
                 response = next.Element(Wsman.Enumeration + "PullResponse")
                            ?? throw new WsmanException("The Pull reply has no PullResponse.");
@@ -153,15 +187,15 @@ internal sealed class WinRmBackend : IAsyncDisposable
         finally
         {
             if (!finished && !string.IsNullOrEmpty(context))
-                await ReleaseAsync(uri, context).ConfigureAwait(false);
+                await ReleaseAsync(uri, selectors, context).ConfigureAwait(false);
         }
     }
 
-    private async Task ReleaseAsync(string uri, string context)
+    private async Task ReleaseAsync(string uri, List<KeyValuePair<string, string>>? selectors, string context)
     {
         try
         {
-            await _client.CallAsync(uri, Wsman.ActionRelease, null,
+            await _client.CallAsync(uri, Wsman.ActionRelease, selectors,
                 new XElement(Wsman.Enumeration + "Release",
                     new XElement(Wsman.Enumeration + "EnumerationContext", context)),
                 CancellationToken.None).ConfigureAwait(false);
@@ -192,7 +226,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
     /// <summary>How long one event pull waits. The listener holds a pull for its whole timeout even when an event is ready, so keep it short.</summary>
     private static readonly TimeSpan EventPullWait = TimeSpan.FromSeconds(3);
 
-    public async IAsyncEnumerable<WmiObject> WatchAsync(
+    public async IAsyncEnumerable<WmiInstance> WatchAsync(
         string eventQuery, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var uri = _client.ResourceUri("*");
@@ -281,14 +315,16 @@ internal sealed class WinRmBackend : IAsyncDisposable
     private static bool IsBestEffortFailure(Exception ex) =>
         ex is WsmanException or WmiException or HttpRequestException or OperationCanceledException;
 
-    public async Task PutInstanceAsync(WmiObject instance, WbemChangeFlags flags, CancellationToken cancellationToken)
+    public async Task PutInstanceAsync(WmiInstance instance, WbemChangeFlags flags, CancellationToken cancellationToken)
     {
-        var uri = _client.ResourceUri(instance.ClassName);
-        var body = BuildInstanceElement(instance, uri, await SchemaAsync(instance.ClassName).ConfigureAwait(false),
-            await EmbeddedSchemasAsync(instance.Properties.Values).ConfigureAwait(false));
-        var selectors = instance.KeyPropertyNames
-            .Where(k => instance.Properties.GetValueOrDefault(k) is not null)
-            .Select(k => new KeyValuePair<string, string>(k, WsmanClient.Format(instance.Properties[k]!)))
+        var className = instance.SystemProperties.ClassName;
+        var uri = _client.ResourceUri(className);
+        var body = BuildInstanceElement(instance, uri, await SchemaAsync(className).ConfigureAwait(false),
+            await EmbeddedSchemasAsync(instance.Properties.Select(p => p.Value)).ConfigureAwait(false));
+        var selectors = instance.KeyNames
+            .Select(k => instance.Properties[k]!)
+            .Where(p => p.Value is not null)
+            .Select(p => new KeyValuePair<string, string>(p.Name, WsmanClient.Format(p.Value!)))
             .ToList();
 
         if (flags == WbemChangeFlags.CreateOnly)
@@ -315,7 +351,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
             cancellationToken);
     }
 
-    public async Task<WmiObject?> InvokeMethodAsync(
+    public async Task<WmiInstance?> InvokeMethodAsync(
         string objectPath, string methodName, IReadOnlyDictionary<string, object?>? parameters,
         CancellationToken cancellationToken)
     {
@@ -351,7 +387,9 @@ internal sealed class WinRmBackend : IAsyncDisposable
         var outputName = output.Name.LocalName;
 
         var read = WsmanObjectReader.Read(output, null, [], _host, _namespacePath, null, Lookup);
-        return read.AsParameters();
+        return WmiInstance.FromWinRm("__PARAMETERS",
+            read.Properties.Select(p => new KeyValuePair<string, object?>(p.Name, p.Value)), methodSchema?.Class, [],
+            _host, _namespacePath);
 
         WsmanClassSchema? Lookup(string name) =>
             name == outputName && methodSchema is not null ? methodSchema : inner?.Invoke(name);
@@ -379,22 +417,32 @@ internal sealed class WinRmBackend : IAsyncDisposable
     {
         try
         {
-            var body = await _client.CallAsync(CimXmlResource, Wsman.ActionGet,
-                [new KeyValuePair<string, string>("__cimnamespace", _client.Namespace), new("ClassName", className)], null, CancellationToken.None,
-                null,
-                [
-                    new WsmanOption("IncludeInheritanceHierarchy", "xs:boolean", "true"),
-                    new WsmanOption("IncludeInheritedElements", "xs:boolean", "true"),
-                    new WsmanOption("IncludeQualifiers", "xs:boolean", "false"),
-                ]).ConfigureAwait(false);
-            var cls = body.Descendants().FirstOrDefault(e => e.Name.LocalName == "CLASS");
-            return cls is null ? null : WsmanClassSchema.Parse(cls);
+            return await FetchClassAsync(className, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is WsmanException or WmiException)
         {
             // Untyped is better than failing the read (system and event classes, say, may not answer).
             return null;
         }
+    }
+
+    /// <summary>The options of a class Get or enumeration: every property, inherited ones too, with its qualifiers.</summary>
+    private static readonly WsmanOption[] ClassOptions =
+    [
+        new("IncludeInheritanceHierarchy", "xs:boolean", "true"),
+        new("IncludeInheritedElements", "xs:boolean", "true"),
+        new("IncludeQualifiers", "xs:boolean", "true"),
+    ];
+
+    private async Task<WsmanClassSchema> FetchClassAsync(string className, CancellationToken cancellationToken)
+    {
+        var body = await _client.CallAsync(CimXmlResource, Wsman.ActionGet,
+                [new KeyValuePair<string, string>("__cimnamespace", _client.Namespace), new("ClassName", className)],
+                null, cancellationToken, null, ClassOptions)
+            .ConfigureAwait(false);
+        var cls = body.Descendants().FirstOrDefault(e => e.Name.LocalName == "CLASS")
+                  ?? throw new WsmanException($"The reply to the Get of class {className} holds no class.");
+        return WsmanClassSchema.Parse(cls, _host, _namespacePath);
     }
 
     /// <summary>
@@ -420,12 +468,12 @@ internal sealed class WinRmBackend : IAsyncDisposable
     }
 
     private static XElement BuildInstanceElement(
-        WmiObject instance, string uri, WsmanClassSchema? schema, Func<string, WsmanClassSchema?> embeddedSchemas)
+        WmiInstance instance, string uri, WsmanClassSchema? schema, Func<string, WsmanClassSchema?> embeddedSchemas)
     {
         XNamespace p = uri;
-        var element = new XElement(p + instance.ClassName);
-        foreach (var (name, value) in instance.Properties)
-            AppendValue(element, p + name, ForWire(value, name, schema), embeddedSchemas);
+        var element = new XElement(p + instance.SystemProperties.ClassName);
+        foreach (var property in instance.Properties)
+            AppendValue(element, p + property.Name, ForWire(property.Value, property.Name, schema), embeddedSchemas);
 
         return element;
     }
@@ -448,9 +496,9 @@ internal sealed class WinRmBackend : IAsyncDisposable
         foreach (var value in values)
             switch (value)
             {
-                case WmiObject embedded:
-                    names.Add(embedded.ClassName);
-                    CollectEmbeddedClasses(embedded.Properties.Values, names);
+                case WmiInstance embedded:
+                    names.Add(embedded.SystemProperties.ClassName);
+                    CollectEmbeddedClasses(embedded.Properties.Select(p => p.Value), names);
                     break;
                 case string or byte[]:
                     break;
@@ -490,15 +538,16 @@ internal sealed class WinRmBackend : IAsyncDisposable
             case null:
                 parent.Add(new XElement(name, new XAttribute(Wsman.Xsi + "nil", "true")));
                 break;
-            case WmiObject embedded:
+            case WmiInstance embedded:
                 var nested = new XElement(name);
-                XNamespace ns = $"{Wsman.DmtfSchema}{embedded.ClassName}";
+                var embeddedClass = embedded.SystemProperties.ClassName;
+                XNamespace ns = $"{Wsman.DmtfSchema}{embeddedClass}";
                 nested.Add(new XAttribute(XNamespace.Xmlns + "i", ns),
-                    new XAttribute(Wsman.Xsi + "type", $"i:{embedded.ClassName}_Type"));
+                    new XAttribute(Wsman.Xsi + "type", $"i:{embeddedClass}_Type"));
                 // The provider rejects an embedded object that spells out its unset properties as nil.
-                var schema = embeddedSchemas?.Invoke(embedded.ClassName);
-                foreach (var (childName, childValue) in embedded.Properties.Where(p => p.Value is not null))
-                    AppendValue(nested, ns + childName, ForWire(childValue, childName, schema), embeddedSchemas);
+                var schema = embeddedSchemas?.Invoke(embeddedClass);
+                foreach (var child in embedded.Properties.Where(p => p.Value is not null))
+                    AppendValue(nested, ns + child.Name, ForWire(child.Value, child.Name, schema), embeddedSchemas);
 
                 parent.Add(nested);
                 break;

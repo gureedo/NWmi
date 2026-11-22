@@ -16,9 +16,9 @@ public class AssociationTests
         return await WmiConnection.ConnectWinRmAsync(IntegrationSettings.Host!, credential);
     }
 
-    private static async Task<List<WmiObject>> ToListAsync(IAsyncEnumerable<WmiObject> objects)
+    private static async Task<List<WmiInstance>> ToListAsync(IAsyncEnumerable<WmiInstance> objects)
     {
-        var list = new List<WmiObject>();
+        var list = new List<WmiInstance>();
         await foreach (var o in objects.WithCancellation(TestContext.Current.CancellationToken))
             list.Add(o);
 
@@ -35,20 +35,20 @@ public class AssociationTests
         var ct = TestContext.Current.CancellationToken;
 
         var all = await ToListAsync(wmi.GetAssociatorsAsync(winRmService, cancellationToken: ct));
-        Assert.Contains(all, o => o.ClassName == "Win32_ComputerSystem");
+        Assert.Contains(all, o => o.SystemProperties.ClassName == "Win32_ComputerSystem");
 
         // WinRM is the dependent of its dependencies: RPC and the HTTP driver.
         var dependencies = await ToListAsync(wmi.GetAssociatorsAsync(winRmService,
             associationClass: "Win32_DependentService", role: "Dependent", cancellationToken: ct));
-        Assert.Contains(dependencies, o => o.ClassName == "Win32_Service" && (string?)o["Name"] == "RpcSs");
-        Assert.Contains(dependencies, o => o.ClassName == "Win32_SystemDriver");
-        Assert.DoesNotContain(dependencies, o => o.ClassName == "Win32_ComputerSystem");
+        Assert.Contains(dependencies, o => o.SystemProperties.ClassName == "Win32_Service" && (string?)o["Name"] == "RpcSs");
+        Assert.Contains(dependencies, o => o.SystemProperties.ClassName == "Win32_SystemDriver");
+        Assert.DoesNotContain(dependencies, o => o.SystemProperties.ClassName == "Win32_ComputerSystem");
 
         var services = await ToListAsync(wmi.GetAssociatorsAsync(winRmService,
             associationClass: "Win32_DependentService", resultClass: "Win32_Service", role: "Dependent",
             resultRole: "Antecedent", cancellationToken: ct));
         Assert.NotEmpty(services);
-        Assert.All(services, o => Assert.Equal("Win32_Service", o.ClassName));
+        Assert.All(services, o => Assert.Equal("Win32_Service", o.SystemProperties.ClassName));
         Assert.Contains(services, o => (string?)o["Name"] == "RpcSs");
     }
 
@@ -75,13 +75,13 @@ public class AssociationTests
         var ct = TestContext.Current.CancellationToken;
 
         var all = await ToListAsync(wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"C:\"", cancellationToken: ct));
-        Assert.Contains(all, o => o.ClassName == "Win32_LogicalDiskRootDirectory");
-        Assert.Contains(all, o => o.ClassName == "Win32_LogicalDiskToPartition");
+        Assert.Contains(all, o => o.SystemProperties.ClassName == "Win32_LogicalDiskRootDirectory");
+        Assert.Contains(all, o => o.SystemProperties.ClassName == "Win32_LogicalDiskToPartition");
 
         var roots = await ToListAsync(wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"C:\"",
             resultClass: "Win32_LogicalDiskRootDirectory", role: "GroupComponent", cancellationToken: ct));
         var root = Assert.Single(roots);
-        Assert.Equal(["GroupComponent", "PartComponent"], root.KeyPropertyNames.Order());
+        Assert.Equal(["GroupComponent", "PartComponent"], root.KeyNames.Order());
         Assert.EndsWith("Win32_LogicalDisk.DeviceID=\"C:\"", (string?)root["GroupComponent"]);
         Assert.Contains("Win32_Directory.Name=", (string?)root["PartComponent"]);
 

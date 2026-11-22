@@ -26,14 +26,14 @@ public class WsmanObjectReaderTests
     {
         var obj = WsmanObjectReader.Read(XElement.Parse(Instance), null, ["Handle"], "host", @"root\cimv2");
 
-        Assert.Equal("Win32_Thing", obj.ClassName);
+        Assert.Equal("Win32_Thing", obj.SystemProperties.ClassName);
         Assert.Equal("4", obj["Handle"]);
         Assert.Equal(true, obj["Enabled"]);
         Assert.Null(obj["Missing"]);
         Assert.Equal("20261029071949.637856+060", obj["Created"]);
         Assert.Equal(new object?[] { "a", "b" }, (object?[])obj["Tags"]!);
-        Assert.Equal("7", ((WmiObject)obj["Child"]!)["Size"]);
-        Assert.EndsWith("Win32_Thing.Handle=\"4\"", obj.Path);
+        Assert.Equal("7", ((WmiInstance)obj["Child"]!)["Size"]);
+        Assert.EndsWith("Win32_Thing.Handle=\"4\"", obj.SystemProperties.Path);
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class WsmanObjectReaderTests
             </a:EndpointReference>
             """);
         var obj = WsmanObjectReader.Read(XElement.Parse(Instance), epr, null, null, null);
-        Assert.Equal(["Handle"], obj.KeyPropertyNames);
+        Assert.Equal(["Handle"], obj.KeyNames);
     }
 
     [Fact]
@@ -84,12 +84,12 @@ public class WsmanObjectReaderTests
 
         var obj = WsmanObjectReader.Read(instance, epr, null, "host", @"root\cimv2");
 
-        Assert.Equal(["GroupComponent", "PartComponent"], obj.KeyPropertyNames);
+        Assert.Equal(["GroupComponent", "PartComponent"], obj.KeyNames);
         Assert.Equal("Win32_ComputerSystem.Name=\"W1\"", obj["GroupComponent"]);
         Assert.Equal("Win32_Service.Name=\"WinRM\"", obj["PartComponent"]);
         Assert.Equal(
             "Win32_SystemServices.GroupComponent=\"Win32_ComputerSystem.Name=\\\"W1\\\"\",PartComponent=\"Win32_Service.Name=\\\"WinRM\\\"\"",
-            obj.RelativePath);
+            obj.SystemProperties.RelativePath);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public class WsmanObjectReaderTests
         var fragment = XElement.Parse("<w:XmlFragment xmlns:w=\"urn:x\"><Name>n</Name></w:XmlFragment>");
         var obj = WsmanObjectReader.Read(fragment, null, null, null, null,
             WsmanObjectReader.ClassOfQuery("select Name from Win32_Service where x = 1"));
-        Assert.Equal("Win32_Service", obj.ClassName);
+        Assert.Equal("Win32_Service", obj.SystemProperties.ClassName);
     }
 
     [Theory]
