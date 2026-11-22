@@ -1,4 +1,5 @@
 using NWmi.Auth;
+using NWmi.Options;
 
 namespace NWmi.Rpc;
 

@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using NWmi.Auth;
 using NWmi.Auth.Ntlm;
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Rpc.Pdu;
 using NWmi.Tests.Auth;

@@ -1,4 +1,4 @@
-using NWmi.Client;
+using NWmi.Generic;
 using NWmi.Wmio;
 
 namespace NWmi.Tests.Client;

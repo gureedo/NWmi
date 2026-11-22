@@ -1,7 +1,5 @@
 using System.Globalization;
-using NWmi.Auth;
-using NWmi.Client;
-using NWmi.Wmi;
+using NWmi.Options;
 
 namespace NWmi.IntegrationTests;
 
@@ -78,7 +76,7 @@ public class ArrayAndPathTests
         Assert.NotEmpty(disks);
         foreach (var disk in disks)
         {
-            var path = CimObjectPath.Parse(disk.SystemProperties.Path!);
+            var path = WmiObjectPath.Parse(disk.SystemProperties.Path!);
             Assert.Equal("Win32_LogicalDisk", path.ClassName);
             Assert.True(path.IsInstance);
             Assert.Equal(disk["DeviceID"], path["DeviceID"]);

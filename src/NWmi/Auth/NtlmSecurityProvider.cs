@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using NWmi.Auth.Ntlm;
+using NWmi.Options;
 using NWmi.Rpc;
 
 namespace NWmi.Auth;

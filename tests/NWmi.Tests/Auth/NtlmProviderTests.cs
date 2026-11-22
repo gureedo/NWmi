@@ -1,6 +1,7 @@
 using System.Text;
 using NWmi.Auth;
 using NWmi.Auth.Ntlm;
+using NWmi.Options;
 
 namespace NWmi.Tests.Auth;
 

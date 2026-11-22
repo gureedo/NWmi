@@ -1,5 +1,6 @@
 using NWmi.Auth;
 using NWmi.Dcom;
+using NWmi.Options;
 using NWmi.Rpc;
 
 namespace NWmi.IntegrationTests;

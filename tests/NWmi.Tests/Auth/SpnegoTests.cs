@@ -1,6 +1,7 @@
 using System.Formats.Asn1;
 using System.Text;
 using NWmi.Auth;
+using NWmi.Options;
 using NWmi.Rpc;
 
 namespace NWmi.Tests.Auth;

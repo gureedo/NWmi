@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NWmi.Options;
 using NWmi.Transport;
 
 namespace NWmi.Auth.Kerberos;

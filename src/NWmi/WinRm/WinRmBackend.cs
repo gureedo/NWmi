@@ -5,7 +5,6 @@ using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
-using NWmi.Client;
 using NWmi.Wmi;
 
 namespace NWmi.WinRm;
@@ -622,15 +621,15 @@ internal sealed partial class WinRmBackend : IAsyncDisposable
         _ => null,
     };
 
-    private static CimObjectPath Parse(string objectPath)
+    private static WmiObjectPath Parse(string objectPath)
     {
-        if (CimObjectPath.TryParse(objectPath, out var parsed))
+        if (WmiObjectPath.TryParse(objectPath, out var parsed))
             return parsed;
 
         throw new ArgumentException($"'{objectPath}' is not a valid CIM object path.", nameof(objectPath));
     }
 
-    private static List<KeyValuePair<string, string>> Selectors(CimObjectPath path) =>
+    private static List<KeyValuePair<string, string>> Selectors(WmiObjectPath path) =>
         [.. path.Keys.Select(k => new KeyValuePair<string, string>(k.Key, WsmanClient.Format(k.Value)))];
 
     public async ValueTask DisposeAsync()

@@ -1,5 +1,6 @@
 using System.Text;
 using NWmi.Auth;
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Rpc.Pdu;
 using NWmi.Tests.Auth;

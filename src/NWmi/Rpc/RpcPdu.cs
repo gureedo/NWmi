@@ -1,4 +1,5 @@
 using NWmi.Ndr;
+using NWmi.Options;
 using NWmi.Rpc.Pdu;
 
 namespace NWmi.Rpc;

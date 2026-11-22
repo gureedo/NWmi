@@ -1,6 +1,6 @@
 using System.Globalization;
 using NWmi.Auth;
-using NWmi.Client;
+using NWmi.Options;
 using NWmi.Wmi;
 
 namespace NWmi.IntegrationTests;
@@ -170,9 +170,9 @@ public class WmiConnectionTests
     }
 
     [IntegrationTheory]
-    [InlineData(Rpc.RpcAuthLevel.PacketIntegrity)]
-    [InlineData(Rpc.RpcAuthLevel.PacketPrivacy)]
-    public async Task Packet_integrity_and_privacy_can_query_and_call_a_method(Rpc.RpcAuthLevel level)
+    [InlineData(RpcAuthLevel.PacketIntegrity)]
+    [InlineData(RpcAuthLevel.PacketPrivacy)]
+    public async Task Packet_integrity_and_privacy_can_query_and_call_a_method(RpcAuthLevel level)
     {
         await using var wmi = await WmiConnection.ConnectAsync(
             IntegrationSettings.Host!,
@@ -194,7 +194,7 @@ public class WmiConnectionTests
         // WmiConnectionOptions may not allow Connect, so it is only reachable at this lower layer.
         var security = new Rpc.RpcSecurity(
             new NtlmSecurityProvider(Credential.Parse(IntegrationSettings.User!, IntegrationSettings.Password!)),
-            Rpc.RpcAuthLevel.Connect);
+            RpcAuthLevel.Connect);
 
         var ex = await Assert.ThrowsAsync<Rpc.RpcFaultException>(() =>
             WbemLevel1LoginClient.ConnectAsync(IntegrationSettings.Host!, security));

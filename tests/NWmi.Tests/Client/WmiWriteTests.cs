@@ -1,7 +1,7 @@
-using NWmi.Client;
 using NWmi.Dcom;
 using NWmi.Ndr;
 using NWmi.Ndr.Ole;
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Rpc.Pdu;
 using NWmi.Tests.Rpc;

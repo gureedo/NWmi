@@ -1,3 +1,5 @@
+using NWmi.Options;
+
 namespace NWmi.Rpc;
 
 /// <summary>The security trailer (<c>sec_trailer</c>) and token that end an authenticated PDU (MS-RPCE 2.2.2.11).</summary>

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using NWmi.Ndr;
+using NWmi.Options;
 using NWmi.Rpc;
 
 namespace NWmi.Dcom;

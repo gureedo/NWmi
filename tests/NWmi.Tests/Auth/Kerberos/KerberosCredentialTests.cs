@@ -1,4 +1,5 @@
 using NWmi.Auth;
+using NWmi.Options;
 
 namespace NWmi.Tests.Auth.Kerberos;
 
@@ -23,7 +24,7 @@ public class KerberosCredentialTests
     {
         var credential = KerberosCredential.FromTicketCache(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")), "EXAMPLE.COM");
 
-        var ex = await Assert.ThrowsAnyAsync<Exception>(() => NWmi.Client.WmiConnection.ConnectAsync(
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => NWmi.WmiConnection.ConnectAsync(
             "127.0.0.1", credential, "127.0.0.1", "host/server01.example.com",
             cancellationToken: TestContext.Current.CancellationToken));
         Assert.True(ex is SecurityProviderException or FileNotFoundException, ex.GetType().Name);

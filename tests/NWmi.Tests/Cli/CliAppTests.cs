@@ -1,11 +1,10 @@
 using System.Text;
 using System.Text.Json;
-using NWmi.Auth;
 using NWmi.Cli;
-using NWmi.Client;
 using NWmi.Dcom;
 using NWmi.Ndr;
 using NWmi.Ndr.Ole;
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Rpc.Pdu;
 using NWmi.Tests.Rpc;
@@ -538,7 +537,7 @@ public class CliAppTests
         ("When", new DateTime(2026, 11, 21, 8, 30, 0, DateTimeKind.Utc)),
         ("Span", new TimeSpan(1, 2, 3, 4)),
         ("Sizes", new uint[] { 1, 2 }),
-        ("Owner", WmiInstance.FromReference(NWmi.Wmi.CimObjectPath.Parse(@"\\.\root\cimv2:Win32_Account.Name=""A"""))));
+        ("Owner", WmiInstance.FromReference(WmiObjectPath.Parse(@"\\.\root\cimv2:Win32_Account.Name=""A"""))));
 
     [Fact]
     public async Task Text_output_writes_datetimes_in_ISO_8601_typed_arrays_and_references_as_paths()

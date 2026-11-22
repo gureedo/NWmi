@@ -1,3 +1,4 @@
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Rpc.Pdu;
 using NWmi.Tests.Ndr;

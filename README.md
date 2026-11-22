@@ -4,8 +4,8 @@ A pure managed WMI client for .NET. It talks to a remote Windows machine over DC
 `System.Management`, COM interop or any native dependency.
 
 ```csharp
-using NWmi.Auth;
-using NWmi.Client;
+using NWmi;
+using NWmi.Options;
 
 await using var wmi = await WmiConnection.ConnectAsync(
     "server01", new Credential("admin", "password", "CORP"));
@@ -52,6 +52,10 @@ dotnet pack src/NWmi -c Release
 ```
 
 ## Usage
+
+The public types are in three namespaces: `NWmi` (the connection, instances, classes, paths, errors and flags),
+`NWmi.Options` (connection options and credentials) and `NWmi.Generic` (the keyed collections behind `Properties`,
+`Methods` and `Qualifiers`).
 
 ### Connecting
 

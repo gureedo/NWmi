@@ -2,8 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Help;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
-using NWmi.Auth;
-using NWmi.Client;
+using NWmi.Options;
 
 namespace NWmi.Cli;
 

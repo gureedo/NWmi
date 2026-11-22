@@ -1,4 +1,3 @@
-using NWmi.Client;
 
 namespace NWmi.Cli;
 

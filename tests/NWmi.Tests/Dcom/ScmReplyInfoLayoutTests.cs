@@ -1,6 +1,6 @@
 using NWmi.Dcom;
 using NWmi.Dcom.ActivationProperty;
-using NWmi.Rpc;
+using NWmi.Options;
 using NWmi.Tests.Ndr;
 
 namespace NWmi.Tests.Dcom;

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NWmi.Auth.Kerberos;
 using NWmi.Rpc;
+using KerberosCredential = NWmi.Options.KerberosCredential;
 
 namespace NWmi.Auth;
 

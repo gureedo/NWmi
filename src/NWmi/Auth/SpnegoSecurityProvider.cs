@@ -4,6 +4,7 @@ using Kerberos.NET.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NWmi.Auth.Kerberos;
+using NWmi.Options;
 using NWmi.Rpc;
 
 namespace NWmi.Auth;

@@ -1,5 +1,4 @@
 using System.Xml.Linq;
-using NWmi.Client;
 using NWmi.WinRm;
 
 namespace NWmi.Tests.WinRm;

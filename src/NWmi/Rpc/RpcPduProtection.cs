@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using NWmi.Options;
 
 namespace NWmi.Rpc;
 

@@ -1,5 +1,4 @@
 using System.Globalization;
-using NWmi.Client;
 
 namespace NWmi.Cli;
 

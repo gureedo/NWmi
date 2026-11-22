@@ -1,9 +1,8 @@
 using NWmi.Auth;
-using NWmi.Client;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
+using NWmi.Options;
 using NWmi.WinRm;
-using NWmi.Wmi;
 
 namespace NWmi.IntegrationTests;
 

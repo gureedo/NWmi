@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Xml.Linq;
-using NWmi.Wmi;
 
 namespace NWmi.WinRm;
 

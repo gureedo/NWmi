@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
-using NWmi.Auth;
-using NWmi.Client;
+using NWmi.Options;
 
 namespace NWmi.IntegrationTests;
 

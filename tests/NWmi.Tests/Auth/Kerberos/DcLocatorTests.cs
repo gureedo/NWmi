@@ -3,8 +3,8 @@ using System.Formats.Asn1;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using NWmi.Auth;
 using NWmi.Auth.Kerberos;
+using NWmi.Options;
 
 namespace NWmi.Tests.Auth.Kerberos;
 

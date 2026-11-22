@@ -1,7 +1,7 @@
 using NWmi.Dcom;
 using NWmi.Dcom.ActivationProperty;
 using NWmi.Ndr;
-using NWmi.Rpc;
+using NWmi.Options;
 
 namespace NWmi.Tests.Dcom;
 

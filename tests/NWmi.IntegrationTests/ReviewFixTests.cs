@@ -1,8 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
-using NWmi.Auth;
-using NWmi.Client;
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Wmi;
 

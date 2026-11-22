@@ -1,6 +1,4 @@
-using NWmi.Auth;
-using NWmi.Client;
-using NWmi.Wmi;
+using NWmi.Options;
 
 namespace NWmi.IntegrationTests;
 

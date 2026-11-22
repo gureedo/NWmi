@@ -2,6 +2,7 @@ using Kerberos.NET.Crypto;
 using Kerberos.NET.Entities;
 using NWmi.Auth;
 using NWmi.Auth.Kerberos;
+using NWmi.Options;
 using NWmi.Rpc;
 
 namespace NWmi.Tests.Auth.Kerberos;

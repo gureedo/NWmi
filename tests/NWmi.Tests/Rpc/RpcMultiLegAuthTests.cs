@@ -1,4 +1,5 @@
 using NWmi.Auth;
+using NWmi.Options;
 using NWmi.Rpc;
 using NWmi.Rpc.Pdu;
 

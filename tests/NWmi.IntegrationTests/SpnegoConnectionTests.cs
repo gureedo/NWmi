@@ -1,7 +1,5 @@
 using System.Net;
-using NWmi.Auth;
-using NWmi.Client;
-using NWmi.Rpc;
+using NWmi.Options;
 
 namespace NWmi.IntegrationTests;
 

@@ -2,8 +2,6 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
-using NWmi.Client;
-using NWmi.Wmi;
 
 namespace NWmi.WinRm;
 
@@ -158,7 +156,7 @@ internal static partial class WsmanObjectReader
     /// <c>__cimnamespace</c>, the namespace. A resource URI under the WMI prefix (<c>.../wmi/root/cimv2/Win32_Account</c>)
     /// names the namespace too.
     /// </summary>
-    private static CimObjectPath? ReferencePath(XElement element)
+    private static WmiObjectPath? ReferencePath(XElement element)
     {
         var uri = element.Descendants().FirstOrDefault(e => e.Name.LocalName == "ResourceURI")?.Value.Trim();
         var slash = uri?.LastIndexOf('/') ?? -1;
@@ -180,7 +178,7 @@ internal static partial class WsmanObjectReader
                 keys.Add(new KeyValuePair<string, object>(name, SelectorValue(selector)));
         }
 
-        return new CimObjectPath(className, keys, string.IsNullOrEmpty(@namespace) ? null : @namespace.Replace('/', '\\'));
+        return new WmiObjectPath(className, keys, string.IsNullOrEmpty(@namespace) ? null : @namespace.Replace('/', '\\'));
     }
 
     /// <summary>An xs:dateTime as a <see cref="DateTime"/> in UTC; the text itself when it does not parse.</summary>
