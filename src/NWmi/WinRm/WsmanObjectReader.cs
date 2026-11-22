@@ -26,8 +26,8 @@ internal static partial class WsmanObjectReader
         var className = instance.Name.LocalName == "XmlFragment"
             ? fallbackClassName ?? "XmlFragment"
             : ClassNameOf(instance);
-        return new WmiObject(className, ReadProperties(instance, className, schemas, server, namespacePath), keys,
-            server, namespacePath);
+        var (values, types) = ReadProperties(instance, className, schemas, server, namespacePath);
+        return new WmiObject(className, values, keys, server, namespacePath, types);
     }
 
     /// <summary>
@@ -72,11 +72,12 @@ internal static partial class WsmanObjectReader
         return type.EndsWith("_Type", StringComparison.Ordinal) ? type[..^5] : null;
     }
 
-    private static List<KeyValuePair<string, object?>> ReadProperties(
+    private static (List<KeyValuePair<string, object?>> Values, Dictionary<string, WmiType>? Types) ReadProperties(
         XElement instance, string className, Func<string, WsmanClassSchema?>? schemas, string? server, string? ns)
     {
         var schema = schemas?.Invoke(className);
         var result = new List<KeyValuePair<string, object?>>();
+        var types = schema is null ? null : new Dictionary<string, WmiType>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in instance.Elements().GroupBy(e => e.Name.LocalName))
         {
             var items = group.ToList();
@@ -95,9 +96,11 @@ internal static partial class WsmanObjectReader
                     : items.Select(i => ReadValue(i, type, schemas, server, ns)).ToArray();
 
             result.Add(new KeyValuePair<string, object?>(group.Key, value));
+            if (types is not null && type is { } declared)
+                types[group.Key] = WmiTypeMapping.FromCimXml(declared.CimType, declared.IsArray);
         }
 
-        return result;
+        return (result, types);
     }
 
     private static bool IsNil(XElement element) => (string?)element.Attribute(Wsman.Xsi + "nil") is "true" or "1";
@@ -135,7 +138,8 @@ internal static partial class WsmanObjectReader
             return ReferencePath(element);
 
         var nestedClass = TypeClassOf(element) ?? element.Name.LocalName;
-        return new WmiObject(nestedClass, ReadProperties(element, nestedClass, schemas, server, ns), [], server, ns);
+        var (values, types) = ReadProperties(element, nestedClass, schemas, server, ns);
+        return new WmiObject(nestedClass, values, [], server, ns, types);
     }
 
     /// <summary>A reference is an endpoint reference; its resource URI names the class and its selectors the keys.</summary>

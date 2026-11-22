@@ -834,17 +834,17 @@ public sealed class WmiConnection : IAsyncDisposable
             .Select(kv =>
             {
                 var type = InferCimType(kv.Value);
-                var value = type.IsArray() || type is CimType.Object or CimType.DateTime
+                var value = type.IsArray() || type is WbemType.Object or WbemType.DateTime
                     ? CoerceValue(kv.Value, type)
                     : kv.Value;
                 var id = order++;
                 IReadOnlyList<WmioQualifier> qualifiers =
                 [
                     new("ID", QualifierFlavor.PropagateToInstance | QualifierFlavor.NotOverridable,
-                        CimType.Sint32, (int)id),
-                    new("In", QualifierFlavor.None, CimType.Boolean, true),
+                        WbemType.Sint32, (int)id),
+                    new("In", QualifierFlavor.None, WbemType.Boolean, true),
                     new("CIMTYPE", QualifierFlavor.PropagateToInstance | QualifierFlavor.PropagateToDerivedClass,
-                        CimType.String, MofTypeName(type.BaseType(), kv.Value)),
+                        WbemType.String, MofTypeName(type.BaseType(), kv.Value)),
                 ];
                 return new WmioProperty(kv.Key, type, false, id, 0, qualifiers,
                     new NullAndDefaultFlag(value is null, false),
@@ -853,7 +853,7 @@ public sealed class WmiConnection : IAsyncDisposable
             .ToList();
 
         var @class = new WmioClass(
-            "__PARAMETERS", [], [new WmioQualifier("abstract", QualifierFlavor.None, CimType.Boolean, true)],
+            "__PARAMETERS", [], [new WmioQualifier("abstract", QualifierFlavor.None, WbemType.Boolean, true)],
             properties, []);
 
         return WmioObjectBlock.ForClass(@class);
@@ -861,24 +861,24 @@ public sealed class WmiConnection : IAsyncDisposable
 
     /// <summary>
     /// The MOF type name a server puts in a method parameter's CIMTYPE qualifier: e.g. <c>"string"</c>, <c>"sint32"</c>. <see cref="BuildParametersBlock"/>
-    /// only ever infers the base types listed here (an array's CIMTYPE names its element type), never <see cref="CimType.Object"/>.
+    /// only ever infers the base types listed here (an array's CIMTYPE names its element type), never <see cref="WbemType.Object"/>.
     /// </summary>
-    private static string MofTypeName(CimType type, object? value = null) => type switch
+    private static string MofTypeName(WbemType type, object? value = null) => type switch
     {
-        CimType.Object => "object:" + EmbeddedClassName(value),
-        CimType.String => "string",
-        CimType.Boolean => "boolean",
-        CimType.Sint8 => "sint8",
-        CimType.Uint8 => "uint8",
-        CimType.Sint16 => "sint16",
-        CimType.Uint16 => "uint16",
-        CimType.Sint32 => "sint32",
-        CimType.Uint32 => "uint32",
-        CimType.Sint64 => "sint64",
-        CimType.Uint64 => "uint64",
-        CimType.Real32 => "real32",
-        CimType.Real64 => "real64",
-        CimType.DateTime => "datetime",
+        WbemType.Object => "object:" + EmbeddedClassName(value),
+        WbemType.String => "string",
+        WbemType.Boolean => "boolean",
+        WbemType.Sint8 => "sint8",
+        WbemType.Uint8 => "uint8",
+        WbemType.Sint16 => "sint16",
+        WbemType.Uint16 => "uint16",
+        WbemType.Sint32 => "sint32",
+        WbemType.Uint32 => "uint32",
+        WbemType.Sint64 => "sint64",
+        WbemType.Uint64 => "uint64",
+        WbemType.Real32 => "real32",
+        WbemType.Real64 => "real64",
+        WbemType.DateTime => "datetime",
         _ => throw new NotSupportedException($"No MOF type name for {type}."),
     };
 
@@ -894,18 +894,18 @@ public sealed class WmiConnection : IAsyncDisposable
 
     /// <summary>
     /// The CIM type to send <paramref name="value"/> as when a method's signature is not known: a scalar for the common
-    /// .NET types, the same with <see cref="CimType.ArrayFlag"/> for an array or any other sequence of them (<c>string[]</c>,
+    /// .NET types, the same with <see cref="WbemType.ArrayFlag"/> for an array or any other sequence of them (<c>string[]</c>,
     /// <c>byte[]</c>, <c>List&lt;int&gt;</c>, ...). A sequence typed as <c>object</c> is typed by its first non-null element.
     /// </summary>
-    internal static CimType InferCimType(object? value)
+    internal static WbemType InferCimType(object? value)
     {
         if (value is null or string)
-            return CimType.String;
+            return WbemType.String;
 
         return value is IEnumerable sequence ? InferElementType(sequence).AsArray() : InferScalarType(value.GetType());
     }
 
-    private static CimType InferElementType(IEnumerable sequence)
+    private static WbemType InferElementType(IEnumerable sequence)
     {
         var elementType = sequence is Array array
             ? array.GetType().GetElementType()
@@ -926,31 +926,31 @@ public sealed class WmiConnection : IAsyncDisposable
         return InferScalarType(elementType);
     }
 
-    private static CimType InferScalarType(Type type) =>
-        type == typeof(string) ? CimType.String
-        : type == typeof(bool) ? CimType.Boolean
-        : type == typeof(sbyte) ? CimType.Sint8
-        : type == typeof(byte) ? CimType.Uint8
-        : type == typeof(short) ? CimType.Sint16
-        : type == typeof(ushort) ? CimType.Uint16
-        : type == typeof(int) ? CimType.Sint32
-        : type == typeof(uint) ? CimType.Uint32
-        : type == typeof(long) ? CimType.Sint64
-        : type == typeof(ulong) ? CimType.Uint64
-        : type == typeof(float) ? CimType.Real32
-        : type == typeof(double) ? CimType.Real64
-        : type == typeof(DateTimeOffset) || type == typeof(TimeSpan) ? CimType.DateTime
-        : type == typeof(WmiObject) ? CimType.Object
+    private static WbemType InferScalarType(Type type) =>
+        type == typeof(string) ? WbemType.String
+        : type == typeof(bool) ? WbemType.Boolean
+        : type == typeof(sbyte) ? WbemType.Sint8
+        : type == typeof(byte) ? WbemType.Uint8
+        : type == typeof(short) ? WbemType.Sint16
+        : type == typeof(ushort) ? WbemType.Uint16
+        : type == typeof(int) ? WbemType.Sint32
+        : type == typeof(uint) ? WbemType.Uint32
+        : type == typeof(long) ? WbemType.Sint64
+        : type == typeof(ulong) ? WbemType.Uint64
+        : type == typeof(float) ? WbemType.Real32
+        : type == typeof(double) ? WbemType.Real64
+        : type == typeof(DateTimeOffset) || type == typeof(TimeSpan) ? WbemType.DateTime
+        : type == typeof(WmiObject) ? WbemType.Object
         : throw new NotSupportedException($"Cannot infer a CIM type for a method parameter value of type {type}.");
 
     /// <summary>
     /// Converts a caller-supplied parameter value to the exact CLR type its signature's declared
     /// <paramref name="type"/> requires for inline encoding (<see cref="WmioValue.WriteInline"/> rejects
-    /// anything else, e.g. a boxed <see cref="int"/> for a <see cref="CimType.Uint32"/> property):
+    /// anything else, e.g. a boxed <see cref="int"/> for a <see cref="WbemType.Uint32"/> property):
     /// for example <c>Win32_Process.Terminate</c>'s <c>Reason</c> parameter, declared <c>uint32</c>,
     /// which a caller naturally supplies as a plain <see langword="int"/> literal.
     /// </summary>
-    internal static object? CoerceValue(object? value, CimType type)
+    internal static object? CoerceValue(object? value, WbemType type)
     {
         if (value is null)
             return null;
@@ -960,26 +960,26 @@ public sealed class WmiConnection : IAsyncDisposable
 
         return type.BaseType() switch
         {
-            CimType.Sint8 => Convert.ToSByte(value, CultureInfo.InvariantCulture),
-            CimType.Uint8 => Convert.ToByte(value, CultureInfo.InvariantCulture),
-            CimType.Sint16 => Convert.ToInt16(value, CultureInfo.InvariantCulture),
-            CimType.Uint16 => Convert.ToUInt16(value, CultureInfo.InvariantCulture),
-            CimType.Sint32 => Convert.ToInt32(value, CultureInfo.InvariantCulture),
-            CimType.Uint32 => Convert.ToUInt32(value, CultureInfo.InvariantCulture),
-            CimType.Sint64 => Convert.ToInt64(value, CultureInfo.InvariantCulture),
-            CimType.Uint64 => Convert.ToUInt64(value, CultureInfo.InvariantCulture),
-            CimType.Real32 => Convert.ToSingle(value, CultureInfo.InvariantCulture),
-            CimType.Real64 => Convert.ToDouble(value, CultureInfo.InvariantCulture),
-            CimType.Boolean => Convert.ToBoolean(value, CultureInfo.InvariantCulture),
-            CimType.Char16 => Convert.ToChar(value, CultureInfo.InvariantCulture),
-            CimType.DateTime => value switch
+            WbemType.Sint8 => Convert.ToSByte(value, CultureInfo.InvariantCulture),
+            WbemType.Uint8 => Convert.ToByte(value, CultureInfo.InvariantCulture),
+            WbemType.Sint16 => Convert.ToInt16(value, CultureInfo.InvariantCulture),
+            WbemType.Uint16 => Convert.ToUInt16(value, CultureInfo.InvariantCulture),
+            WbemType.Sint32 => Convert.ToInt32(value, CultureInfo.InvariantCulture),
+            WbemType.Uint32 => Convert.ToUInt32(value, CultureInfo.InvariantCulture),
+            WbemType.Sint64 => Convert.ToInt64(value, CultureInfo.InvariantCulture),
+            WbemType.Uint64 => Convert.ToUInt64(value, CultureInfo.InvariantCulture),
+            WbemType.Real32 => Convert.ToSingle(value, CultureInfo.InvariantCulture),
+            WbemType.Real64 => Convert.ToDouble(value, CultureInfo.InvariantCulture),
+            WbemType.Boolean => Convert.ToBoolean(value, CultureInfo.InvariantCulture),
+            WbemType.Char16 => Convert.ToChar(value, CultureInfo.InvariantCulture),
+            WbemType.DateTime => value switch
             {
                 DateTimeOffset moment => DmtfDateTime.Format(moment),
                 TimeSpan interval => DmtfDateTime.Format(interval),
                 _ => Convert.ToString(value, CultureInfo.InvariantCulture),
             },
-            CimType.String or CimType.Reference => Convert.ToString(value, CultureInfo.InvariantCulture),
-            CimType.Object => value switch
+            WbemType.String or WbemType.Reference => Convert.ToString(value, CultureInfo.InvariantCulture),
+            WbemType.Object => value switch
             {
                 WmiObject embedded => embedded.ToInstanceBlock(),
                 WmioObjectBlock block => block,
@@ -995,7 +995,7 @@ public sealed class WmiConnection : IAsyncDisposable
     /// (<c>string[]</c>, <c>byte[]</c>, <c>List&lt;int&gt;</c>, ...), each element coerced like a scalar of the declared
     /// element type.
     /// </summary>
-    private static object?[] CoerceArray(object value, CimType elementType)
+    private static object?[] CoerceArray(object value, WbemType elementType)
     {
         if (value is string || value is not IEnumerable sequence)
             throw new ArgumentException(

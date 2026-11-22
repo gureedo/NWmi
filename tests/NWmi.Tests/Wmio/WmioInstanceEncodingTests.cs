@@ -9,9 +9,9 @@ public class WmioInstanceEncodingTests
         [],
         [],
         [
-            new WmioProperty("Name", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-            new WmioProperty("Count", CimType.Sint32, false, 1, 0, [], new NullAndDefaultFlag(false, false), 7, 0),
-            new WmioProperty("Flag", CimType.Boolean, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+            new WmioProperty("Name", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+            new WmioProperty("Count", WbemType.Sint32, false, 1, 0, [], new NullAndDefaultFlag(false, false), 7, 0),
+            new WmioProperty("Flag", WbemType.Boolean, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
         ],
         []);
 
@@ -35,14 +35,14 @@ public class WmioInstanceEncodingTests
         var original = new WmioClass(
             "Derived",
             ["Base", "GrandBase"],
-            [new WmioQualifier("Description", QualifierFlavor.PropagateToInstance, CimType.String, "a class")],
+            [new WmioQualifier("Description", QualifierFlavor.PropagateToInstance, WbemType.String, "a class")],
             [
                 new WmioProperty(
-                    "Id", CimType.Sint32, true, 0, 1,
-                    [new WmioQualifier("key", QualifierFlavor.NotOverridable, CimType.Boolean, true)],
+                    "Id", WbemType.Sint32, true, 0, 1,
+                    [new WmioQualifier("key", QualifierFlavor.NotOverridable, WbemType.Boolean, true)],
                     new NullAndDefaultFlag(false, false), 42, 0),
                 new WmioProperty(
-                    "Tags", CimType.String | CimType.ArrayFlag, false, 1, 2, [],
+                    "Tags", WbemType.String | WbemType.ArrayFlag, false, 1, 2, [],
                     new NullAndDefaultFlag(true, false), null, 0),
             ],
             []);
@@ -56,14 +56,14 @@ public class WmioInstanceEncodingTests
         Assert.Equal("a class", decoded.Qualifiers.Single().Value);
 
         var id = decoded.FindProperty("Id")!;
-        Assert.Equal(CimType.Sint32, id.Type);
+        Assert.Equal(WbemType.Sint32, id.Type);
         Assert.True(id.DefinedInParentClass);
         Assert.Equal(1u, id.ClassOfOrigin);
         Assert.Equal(42, id.DefaultValue);
         Assert.Equal(true, id.Qualifiers.Single().Value);
 
         var tags = decoded.FindProperty("Tags")!;
-        Assert.Equal(CimType.String | CimType.ArrayFlag, tags.Type);
+        Assert.Equal(WbemType.String | WbemType.ArrayFlag, tags.Type);
         Assert.Null(tags.DefaultValue);
     }
 
@@ -148,7 +148,7 @@ public class WmioInstanceEncodingTests
     {
         var innerClass = new WmioClass(
             "Inner", [], [],
-            [new WmioProperty("X", CimType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+            [new WmioProperty("X", WbemType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
             []);
         var inner = WmioInstance.Create(innerClass, new Dictionary<string, object?> { ["X"] = 5 });
         var innerBlock = WmioObjectBlock.ForInstance(inner);
@@ -156,8 +156,8 @@ public class WmioInstanceEncodingTests
         var outerClass = new WmioClass(
             "Outer", [], [],
             [
-                new WmioProperty("Numbers", CimType.Sint32 | CimType.ArrayFlag, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-                new WmioProperty("Nested", CimType.Object, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Numbers", WbemType.Sint32 | WbemType.ArrayFlag, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Nested", WbemType.Object, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
             ],
             []);
         var outer = WmioInstance.Create(outerClass, new Dictionary<string, object?>
@@ -213,8 +213,8 @@ public class WmioInstanceEncodingTests
         var original = new WmioClass(
             "Layout", [], [],
             [
-                new WmioProperty("A", CimType.Uint16, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 4),
-                new WmioProperty("Z", CimType.Uint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("A", WbemType.Uint16, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 4),
+                new WmioProperty("Z", WbemType.Uint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
             ],
             []);
         var classWriter = new WmioWriter();
@@ -239,7 +239,7 @@ public class WmioInstanceEncodingTests
         var inner = WmioObjectBlock.ForInstance(WmioInstance.Create(SimpleClass(), new Dictionary<string, object?> { ["Count"] = 3 }));
         var outer = new WmioClass(
             "Event", [], [],
-            [new WmioProperty("Target", CimType.Object, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+            [new WmioProperty("Target", WbemType.Object, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
             []);
         var instance = WmioInstance.Create(outer, new Dictionary<string, object?> { ["Target"] = inner });
         var w = new WmioWriter();
@@ -260,7 +260,7 @@ public class WmioInstanceEncodingTests
     {
         var @class = new WmioClass(
             "Holder", [], [],
-            [new WmioProperty("Text", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+            [new WmioProperty("Text", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
             []);
         var instance = WmioInstance.Create(@class, new Dictionary<string, object?> { ["Text"] = "hello" });
         var w = new WmioWriter();

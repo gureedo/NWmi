@@ -45,18 +45,18 @@ public class WmiWriteTests
     private static RpcResponsePdu Reply(RpcRequestPdu request, NdrWriter stub) =>
         new() { CallId = request.CallId, ContextId = request.ContextId, Stub = stub.ToArray() };
 
-    private static WmioProperty Property(string name, CimType type, ushort index) =>
+    private static WmioProperty Property(string name, WbemType type, ushort index) =>
         new(name, type, false, index, 0, [], new NullAndDefaultFlag(true, false), null, 0);
 
     private static readonly WmioClass TestClass = new(
         "NWmi_Test", [], [],
         [
-            Property("Name", CimType.String, 0),
-            Property("Tags", CimType.String | CimType.ArrayFlag, 1),
-            Property("Numbers", CimType.Sint32 | CimType.ArrayFlag, 2),
-            Property("Bytes", CimType.Uint8 | CimType.ArrayFlag, 3),
-            Property("Flags", CimType.Boolean | CimType.ArrayFlag, 4),
-            Property("Big", CimType.Uint64 | CimType.ArrayFlag, 5),
+            Property("Name", WbemType.String, 0),
+            Property("Tags", WbemType.String | WbemType.ArrayFlag, 1),
+            Property("Numbers", WbemType.Sint32 | WbemType.ArrayFlag, 2),
+            Property("Bytes", WbemType.Uint8 | WbemType.ArrayFlag, 3),
+            Property("Flags", WbemType.Boolean | WbemType.ArrayFlag, 4),
+            Property("Big", WbemType.Uint64 | WbemType.ArrayFlag, 5),
         ],
         []);
 
@@ -336,12 +336,12 @@ public class WmiWriteTests
             var qualifiers = sent!.PropertyQualifiers!;
             Assert.Equal(["Description", "FLAG"], qualifiers["Name"].Select(q => q.Name));
             Assert.Equal("the name", qualifiers["Name"][0].Value);
-            Assert.Equal(CimType.Boolean, qualifiers["Name"][1].Type);
+            Assert.Equal(WbemType.Boolean, qualifiers["Name"][1].Type);
             Assert.Equal(false, qualifiers["Name"][1].Value);
             Assert.Equal("FLAG", qualifiers["Name"][1].Name);
-            Assert.Equal(CimType.String | CimType.ArrayFlag, qualifiers["Numbers"][0].Type);
+            Assert.Equal(WbemType.String | WbemType.ArrayFlag, qualifiers["Numbers"][0].Type);
             Assert.Equal(new object?[] { "1", "2" }, qualifiers["Numbers"][0].Value);
-            Assert.Equal(CimType.Sint32, qualifiers["Numbers"][1].Type);
+            Assert.Equal(WbemType.Sint32, qualifiers["Numbers"][1].Type);
             Assert.Empty(qualifiers["Tags"]); // properties without any get an empty set
             Assert.Equal("q", sent.Values["Name"]); // and the values are unaffected
         }
@@ -358,10 +358,10 @@ public class WmiWriteTests
             var original = WmioInstance.Create(
                 TestClass,
                 new Dictionary<string, object?> { ["Name"] = "n" },
-                [new WmioQualifier("Provider", QualifierFlavor.None, CimType.String, "p")],
+                [new WmioQualifier("Provider", QualifierFlavor.None, WbemType.String, "p")],
                 new Dictionary<string, IReadOnlyList<WmioQualifier>>
                 {
-                    ["Name"] = [new WmioQualifier("Description", QualifierFlavor.None, CimType.String, "d")],
+                    ["Name"] = [new WmioQualifier("Description", QualifierFlavor.None, WbemType.String, "d")],
                 });
             var wire = WmioObjectBlock.DecodeEncodingUnit(WmioObjectBlock.ForInstance(original).EncodeEncodingUnit());
             var read = new WmiObject(wire, "server01", @"root\default");

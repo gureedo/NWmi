@@ -50,7 +50,7 @@ public class WmiConnectionTests
     {
         var @class = new WmioClass(
             "Win32_Process", [], [],
-            [new WmioProperty("Handle", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
+            [new WmioProperty("Handle", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
         var block = WmioObjectBlock.ForInstance(WmioInstance.Create(@class, new Dictionary<string, object?> { ["Handle"] = handle }));
         return WmiClassObjectCodec.ToObjRefBytes(block);
     }
@@ -191,8 +191,8 @@ public class WmiConnectionTests
             var signatureClass = new WmioClass(
                 "__PARAMETERS", [], [],
                 [
-                    new WmioProperty("CommandLine", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-                    new WmioProperty("CurrentDirectory", CimType.String, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                    new WmioProperty("CommandLine", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                    new WmioProperty("CurrentDirectory", WbemType.String, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
                 ],
                 []);
             var signatureWriter = new WmioWriter();
@@ -205,7 +205,7 @@ public class WmiConnectionTests
 
             var outClass = new WmioClass(
                 "__PARAMETERS", [], [],
-                [new WmioProperty("ReturnValue", CimType.Uint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
+                [new WmioProperty("ReturnValue", WbemType.Uint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
             var outBlock = WmioObjectBlock.ForInstance(WmioInstance.Create(outClass, new Dictionary<string, object?> { ["ReturnValue"] = 0u }));
             var outObjRef = WmiClassObjectCodec.ToObjRefBytes(outBlock);
 
@@ -259,17 +259,17 @@ public class WmiConnectionTests
     }
 
     [Theory]
-    [InlineData(1, nameof(CimType.Sint32))]
-    [InlineData("x", nameof(CimType.String))]
-    [InlineData(true, nameof(CimType.Boolean))]
-    [InlineData(1.5, nameof(CimType.Real64))]
+    [InlineData(1, nameof(WbemType.Sint32))]
+    [InlineData("x", nameof(WbemType.String))]
+    [InlineData(true, nameof(WbemType.Boolean))]
+    [InlineData(1.5, nameof(WbemType.Real64))]
     public void InferCimType_covers_common_dotnet_types(object value, string expected) =>
-        Assert.Equal(Enum.Parse<CimType>(expected), WmiConnection.InferCimType(value));
+        Assert.Equal(Enum.Parse<WbemType>(expected), WmiConnection.InferCimType(value));
 
     [Fact]
     public void InferCimType_treats_null_as_string()
     {
-        Assert.Equal(CimType.String, WmiConnection.InferCimType(null));
+        Assert.Equal(WbemType.String, WmiConnection.InferCimType(null));
     }
 
     [Fact]
@@ -305,17 +305,17 @@ public class WmiConnectionTests
     [Fact]
     public void InferCimType_maps_arrays_and_sequences_to_the_element_type_with_the_array_flag()
     {
-        Assert.Equal(CimType.String.AsArray(), WmiConnection.InferCimType(new[] { "a", "b" }));
-        Assert.Equal(CimType.Uint8.AsArray(), WmiConnection.InferCimType(new byte[] { 1, 2 }));
-        Assert.Equal(CimType.Sint32.AsArray(), WmiConnection.InferCimType(new List<int> { 1 }));
-        Assert.Equal(CimType.Uint32.AsArray(), WmiConnection.InferCimType(Enumerable.Range(1, 3).Select(i => (uint)i)));
-        Assert.Equal(CimType.Boolean.AsArray(), WmiConnection.InferCimType(Array.Empty<bool>()));
+        Assert.Equal(WbemType.String.AsArray(), WmiConnection.InferCimType(new[] { "a", "b" }));
+        Assert.Equal(WbemType.Uint8.AsArray(), WmiConnection.InferCimType(new byte[] { 1, 2 }));
+        Assert.Equal(WbemType.Sint32.AsArray(), WmiConnection.InferCimType(new List<int> { 1 }));
+        Assert.Equal(WbemType.Uint32.AsArray(), WmiConnection.InferCimType(Enumerable.Range(1, 3).Select(i => (uint)i)));
+        Assert.Equal(WbemType.Boolean.AsArray(), WmiConnection.InferCimType(Array.Empty<bool>()));
     }
 
     [Fact]
     public void InferCimType_types_an_untyped_sequence_by_its_first_element()
     {
-        Assert.Equal(CimType.Sint64.AsArray(), WmiConnection.InferCimType(new object?[] { null, 5L }));
+        Assert.Equal(WbemType.Sint64.AsArray(), WmiConnection.InferCimType(new object?[] { null, 5L }));
         Assert.Throws<NotSupportedException>(() => WmiConnection.InferCimType(Array.Empty<object>()));
         Assert.Throws<NotSupportedException>(() => WmiConnection.InferCimType(new object?[] { null }));
         Assert.Throws<NotSupportedException>(() => WmiConnection.InferCimType(new[] { new[] { 1 } })); // arrays of arrays
@@ -334,7 +334,7 @@ public class WmiConnectionTests
         var decoded = WmioObjectBlock.DecodeEncodingUnit(block.EncodeEncodingUnit()).Class!;
 
         var names = decoded.FindProperty("Names")!;
-        Assert.Equal(CimType.String.AsArray(), names.Type);
+        Assert.Equal(WbemType.String.AsArray(), names.Type);
         Assert.Equal(new object?[] { "a", "bb" }, (object?[])names.DefaultValue!);
         Assert.Equal("string", names.Qualifiers.Single(q => q.Name == "CIMTYPE").Value);
         Assert.Equal(new object?[] { (byte)1, (byte)2, (byte)3 }, (object?[])decoded.FindProperty("Data")!.DefaultValue!);
@@ -348,12 +348,12 @@ public class WmiConnectionTests
         var block = WmiConnection.BuildParametersBlock(new Dictionary<string, object?> { ["Values"] = Array.Empty<string>() });
         var property = WmioObjectBlock.DecodeEncodingUnit(block.EncodeEncodingUnit()).Class!.FindProperty("Values")!;
 
-        Assert.Equal(CimType.String.AsArray(), property.Type);
+        Assert.Equal(WbemType.String.AsArray(), property.Type);
         var values = Assert.IsType<object?[]>(property.DefaultValue);
         Assert.Empty(values);
     }
 
-    private static WmioClass Signature(params (string Name, CimType Type)[] parameters) => new(
+    private static WmioClass Signature(params (string Name, WbemType Type)[] parameters) => new(
         "__PARAMETERS", [], [],
         [.. parameters.Select((p, i) => new WmioProperty(p.Name, p.Type, false, (ushort)i, 0, [], new NullAndDefaultFlag(true, false), null, 0))],
         []);
@@ -361,8 +361,8 @@ public class WmiConnectionTests
     [Fact]
     public void BuildParametersBlock_coerces_each_element_to_the_declared_element_type()
     {
-        var signature = Signature(("hDefKey", CimType.Uint32), ("uValue", CimType.Uint8.AsArray()), ("sValue", CimType.String.AsArray()),
-            ("lValue", CimType.Sint64.AsArray()));
+        var signature = Signature(("hDefKey", WbemType.Uint32), ("uValue", WbemType.Uint8.AsArray()), ("sValue", WbemType.String.AsArray()),
+            ("lValue", WbemType.Sint64.AsArray()));
 
         var block = WmiConnection.BuildParametersBlock(
             new Dictionary<string, object?>
@@ -383,7 +383,7 @@ public class WmiConnectionTests
     [Fact]
     public void BuildParametersBlock_refuses_a_scalar_for_an_array_parameter_and_an_element_that_does_not_fit()
     {
-        var signature = Signature(("uValue", CimType.Uint8.AsArray()), ("Name", CimType.String));
+        var signature = Signature(("uValue", WbemType.Uint8.AsArray()), ("Name", WbemType.String));
 
         Assert.Throws<ArgumentException>(() => WmiConnection.BuildParametersBlock(
             new Dictionary<string, object?> { ["uValue"] = 5 }, signature));
@@ -396,7 +396,7 @@ public class WmiConnectionTests
     [Fact]
     public void BuildParametersBlock_sends_a_null_array_as_null()
     {
-        var signature = Signature(("sValue", CimType.String.AsArray()));
+        var signature = Signature(("sValue", WbemType.String.AsArray()));
 
         var block = WmiConnection.BuildParametersBlock(new Dictionary<string, object?> { ["sValue"] = null }, signature);
 
@@ -408,9 +408,9 @@ public class WmiConnectionTests
         var @class = new WmioClass(
             "Win32_ProcessStartup", [], [],
             [
-                new WmioProperty("ShowWindow", CimType.Uint16, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-                new WmioProperty("PriorityClass", CimType.Uint32, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-                new WmioProperty("Title", CimType.String, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("ShowWindow", WbemType.Uint16, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("PriorityClass", WbemType.Uint32, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Title", WbemType.String, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
             ],
             []);
         var obj = new WmiObject(WmioObjectBlock.ForClass(@class), "server01", @"root\cimv2");
@@ -421,13 +421,13 @@ public class WmiConnectionTests
     }
 
     private static WmioClass CreateSignature() => Signature(
-        ("CommandLine", CimType.String), ("CurrentDirectory", CimType.String), ("ProcessStartupInformation", CimType.Object));
+        ("CommandLine", WbemType.String), ("CurrentDirectory", WbemType.String), ("ProcessStartupInformation", WbemType.Object));
 
     [Fact]
     public void InferCimType_maps_a_WmiObject_to_an_embedded_object()
     {
-        Assert.Equal(CimType.Object, WmiConnection.InferCimType(StartupInfo(0, 0)));
-        Assert.Equal(CimType.Object.AsArray(), WmiConnection.InferCimType(new[] { StartupInfo(0, 0), StartupInfo(1, 1) }));
+        Assert.Equal(WbemType.Object, WmiConnection.InferCimType(StartupInfo(0, 0)));
+        Assert.Equal(WbemType.Object.AsArray(), WmiConnection.InferCimType(new[] { StartupInfo(0, 0), StartupInfo(1, 1) }));
     }
 
     [Fact]
@@ -460,7 +460,7 @@ public class WmiConnectionTests
 
         var property = WmioObjectBlock.DecodeEncodingUnit(block.EncodeEncodingUnit()).Class!.FindProperty("ProcessStartupInformation")!;
 
-        Assert.Equal(CimType.Object, property.Type);
+        Assert.Equal(WbemType.Object, property.Type);
         Assert.Equal("object:Win32_ProcessStartup", property.Qualifiers.Single(q => q.Name == "CIMTYPE").Value);
         Assert.IsType<WmioObjectBlock>(property.DefaultValue);
     }
@@ -468,7 +468,7 @@ public class WmiConnectionTests
     [Fact]
     public void BuildParametersBlock_sends_an_array_of_embedded_objects()
     {
-        var signature = Signature(("Startups", CimType.Object.AsArray()));
+        var signature = Signature(("Startups", WbemType.Object.AsArray()));
 
         var block = WmiConnection.BuildParametersBlock(
             new Dictionary<string, object?> { ["Startups"] = new List<WmiObject> { StartupInfo(0, 1), StartupInfo(2, 3) } }, signature);

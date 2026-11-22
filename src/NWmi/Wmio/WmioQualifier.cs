@@ -1,7 +1,7 @@
 namespace NWmi.Wmio;
 
 /// <summary>One CIM qualifier (MS-WMIO 2.2.60): a name, propagation flavor, type, and value.</summary>
-internal sealed record WmioQualifier(string Name, QualifierFlavor Flavor, CimType Type, object? Value)
+internal sealed record WmioQualifier(string Name, QualifierFlavor Flavor, WbemType Type, object? Value)
 {
     /// <summary>
     /// Decodes a QualifierSet (MS-WMIO 2.2.59): a length-prefixed block holding zero or more qualifiers back
@@ -46,7 +46,7 @@ internal sealed record WmioQualifier(string Name, QualifierFlavor Flavor, CimTyp
     {
         var name = heap.ResolveRequiredString(reader.ReadUInt32());
         var flavor = (QualifierFlavor)reader.ReadByte();
-        var type = (CimType)reader.ReadUInt32();
+        var type = (WbemType)reader.ReadUInt32();
         var value = WmioValue.ReadInline(reader, type, heap);
         return new WmioQualifier(name, flavor, type, value);
     }

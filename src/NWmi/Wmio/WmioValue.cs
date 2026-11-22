@@ -5,7 +5,7 @@ namespace NWmi.Wmio;
 /// and the heap-backed representation for strings, arrays and embedded objects. Values are plain .NET objects:
 /// <c>sbyte</c>/<c>byte</c>/<c>short</c>/<c>ushort</c>/<c>int</c>/<c>uint</c>/<c>long</c>/<c>ulong</c>/<c>float</c>/<c>double</c>
 /// for the numeric base types, <c>bool</c>, <c>char</c> for CHAR16, <c>string</c> for STRING/DATETIME/REFERENCE
-/// (the qualifier that distinguishes them is carried separately, as <see cref="CimType"/>), <c>object?[]</c> for
+/// (the qualifier that distinguishes them is carried separately, as <see cref="WbemType"/>), <c>object?[]</c> for
 /// any array, and <see cref="WmioObjectBlock"/> for CIM-TYPE-OBJECT. A value is null exactly when the property
 /// or qualifier is NULL (MS-WMIO 2.2.74, or an absent heap reference for a nullable scalar case).
 /// </summary>
@@ -15,7 +15,7 @@ internal static class WmioValue
     /// Reads one EncodedValue of <paramref name="type"/> from its inline slot (a ValueTable entry, or right
     /// after a QualifierType). For heap-backed types this resolves through <paramref name="heap"/> immediately.
     /// </summary>
-    public static object? ReadInline(WmioReader reader, CimType type, WmioHeap heap)
+    public static object? ReadInline(WmioReader reader, WbemType type, WmioHeap heap)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(heap);
@@ -43,20 +43,20 @@ internal static class WmioValue
 
         return type.BaseType() switch
         {
-            CimType.Sint8 => reader.ReadSByte(),
-            CimType.Uint8 => reader.ReadByte(),
-            CimType.Sint16 => reader.ReadInt16(),
-            CimType.Uint16 => reader.ReadUInt16(),
-            CimType.Sint32 => reader.ReadInt32(),
-            CimType.Uint32 => reader.ReadUInt32(),
-            CimType.Sint64 => reader.ReadInt64(),
-            CimType.Uint64 => reader.ReadUInt64(),
-            CimType.Real32 => reader.ReadReal32(),
-            CimType.Real64 => reader.ReadReal64(),
-            CimType.Boolean => reader.ReadBool(),
-            CimType.Char16 => (char)reader.ReadUInt16(),
-            CimType.String or CimType.DateTime or CimType.Reference => ResolveStringSlot(reader.ReadUInt32(), heap),
-            CimType.Object => ReadObjectRef(reader, heap),
+            WbemType.Sint8 => reader.ReadSByte(),
+            WbemType.Uint8 => reader.ReadByte(),
+            WbemType.Sint16 => reader.ReadInt16(),
+            WbemType.Uint16 => reader.ReadUInt16(),
+            WbemType.Sint32 => reader.ReadInt32(),
+            WbemType.Uint32 => reader.ReadUInt32(),
+            WbemType.Sint64 => reader.ReadInt64(),
+            WbemType.Uint64 => reader.ReadUInt64(),
+            WbemType.Real32 => reader.ReadReal32(),
+            WbemType.Real64 => reader.ReadReal64(),
+            WbemType.Boolean => reader.ReadBool(),
+            WbemType.Char16 => (char)reader.ReadUInt16(),
+            WbemType.String or WbemType.DateTime or WbemType.Reference => ResolveStringSlot(reader.ReadUInt32(), heap),
+            WbemType.Object => ReadObjectRef(reader, heap),
             _ => throw new WmioFormatException($"Cannot read a value of unsupported CIM type {type}."),
         };
     }
@@ -65,7 +65,7 @@ internal static class WmioValue
     /// Writes one EncodedValue inline, exactly mirroring <see cref="ReadInline"/>.
     /// A null value needs <paramref name="type"/> to be nullable on the wire (string, reference, datetime, object, or any array).
     /// </summary>
-    public static void WriteInline(WmioWriter writer, CimType type, object? value, WmioHeapBuilder heap)
+    public static void WriteInline(WmioWriter writer, WbemType type, object? value, WmioHeapBuilder heap)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(heap);
@@ -84,46 +84,46 @@ internal static class WmioValue
 
         switch (type.BaseType())
         {
-            case CimType.Sint8:
+            case WbemType.Sint8:
                 writer.WriteSByte(RequireValue<sbyte>(value, type));
                 break;
-            case CimType.Uint8:
+            case WbemType.Uint8:
                 writer.WriteByte(RequireValue<byte>(value, type));
                 break;
-            case CimType.Sint16:
+            case WbemType.Sint16:
                 writer.WriteInt16(RequireValue<short>(value, type));
                 break;
-            case CimType.Uint16:
+            case WbemType.Uint16:
                 writer.WriteUInt16(RequireValue<ushort>(value, type));
                 break;
-            case CimType.Sint32:
+            case WbemType.Sint32:
                 writer.WriteInt32(RequireValue<int>(value, type));
                 break;
-            case CimType.Uint32:
+            case WbemType.Uint32:
                 writer.WriteUInt32(RequireValue<uint>(value, type));
                 break;
-            case CimType.Sint64:
+            case WbemType.Sint64:
                 writer.WriteInt64(RequireValue<long>(value, type));
                 break;
-            case CimType.Uint64:
+            case WbemType.Uint64:
                 writer.WriteUInt64(RequireValue<ulong>(value, type));
                 break;
-            case CimType.Real32:
+            case WbemType.Real32:
                 writer.WriteReal32(RequireValue<float>(value, type));
                 break;
-            case CimType.Real64:
+            case WbemType.Real64:
                 writer.WriteReal64(RequireValue<double>(value, type));
                 break;
-            case CimType.Boolean:
+            case WbemType.Boolean:
                 writer.WriteBool(RequireValue<bool>(value, type));
                 break;
-            case CimType.Char16:
+            case WbemType.Char16:
                 writer.WriteUInt16(RequireValue<char>(value, type));
                 break;
-            case CimType.String or CimType.DateTime or CimType.Reference:
+            case WbemType.String or WbemType.DateTime or WbemType.Reference:
                 writer.WriteUInt32(heap.AddStringRef(value is null ? null : RequireValue<string>(value, type)));
                 break; // AddStringRef itself writes the null reference (0xFFFFFFFF) when given null
-            case CimType.Object:
+            case WbemType.Object:
                 WriteObjectRef(writer, type, value, heap);
                 break;
             default:
@@ -133,9 +133,9 @@ internal static class WmioValue
 
     /// <summary>
     /// The octets a value of <paramref name="type"/> would occupy as NoValue filler (MS-WMIO 2.2.74): the same
-    /// width <see cref="CimTypeExtensions.InlineValueSize"/> reports, every octet 0xFF.
+    /// width <see cref="WbemTypeExtensions.InlineValueSize"/> reports, every octet 0xFF.
     /// </summary>
-    public static void WriteNoValue(WmioWriter writer, CimType type)
+    public static void WriteNoValue(WmioWriter writer, WbemType type)
     {
         ArgumentNullException.ThrowIfNull(writer);
         var filler = new byte[type.InlineValueSize()];
@@ -151,7 +151,7 @@ internal static class WmioValue
     private static string? ResolveStringSlot(uint reference, WmioHeap heap) =>
         reference == 0 ? null : heap.ResolveString(reference);
 
-    private static T RequireValue<T>(object? value, CimType type)
+    private static T RequireValue<T>(object? value, WbemType type)
     {
         if (value is T typed)
             return typed;
@@ -177,7 +177,7 @@ internal static class WmioValue
         return WmioObjectBlock.Decode(new WmioReader(objectReader.ReadBytes((int)length)));
     }
 
-    private static void WriteObjectRef(WmioWriter writer, CimType type, object? value, WmioHeapBuilder heap)
+    private static void WriteObjectRef(WmioWriter writer, WbemType type, object? value, WmioHeapBuilder heap)
     {
         if (value is null)
         {
@@ -195,7 +195,7 @@ internal static class WmioValue
         }));
     }
 
-    private static object?[] ReadArray(WmioReader reader, CimType elementType, WmioHeap heap)
+    private static object?[] ReadArray(WmioReader reader, WbemType elementType, WmioHeap heap)
     {
         var count = reader.ReadUInt32();
         reader.EnsureCount(count, elementType.InlineValueSize());
@@ -206,7 +206,7 @@ internal static class WmioValue
         return elements;
     }
 
-    private static void WriteArray(WmioWriter writer, CimType elementType, object?[] elements, WmioHeapBuilder heap)
+    private static void WriteArray(WmioWriter writer, WbemType elementType, object?[] elements, WmioHeapBuilder heap)
     {
         writer.WriteUInt32((uint)elements.Length);
         foreach (var element in elements)

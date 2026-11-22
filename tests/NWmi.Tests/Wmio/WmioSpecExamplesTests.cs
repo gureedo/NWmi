@@ -115,7 +115,7 @@ public class WmioSpecExamplesTests
 
         var id = Assert.Single(@class.Properties);
         Assert.Equal("Id", id.Name);
-        Assert.Equal(CimType.Sint32, id.Type);
+        Assert.Equal(WbemType.Sint32, id.Type);
         Assert.True(id.NdFlag.IsNull);
         Assert.False(id.NdFlag.IsInherited);
         Assert.Null(id.DefaultValue);
@@ -142,12 +142,12 @@ public class WmioSpecExamplesTests
         Assert.Equal("MyClass Example", description.Value);
 
         var array = @class.FindProperty("Array")!;
-        Assert.Equal(CimType.Uint32 | CimType.ArrayFlag, array.Type);
+        Assert.Equal(WbemType.Uint32 | WbemType.ArrayFlag, array.Type);
         Assert.False(array.DefinedInParentClass);
         Assert.Null(array.DefaultValue);
 
         var data1 = @class.FindProperty("Data1")!;
-        Assert.Equal(CimType.String, data1.Type);
+        Assert.Equal(WbemType.String, data1.Type);
         Assert.Contains(data1.Qualifiers, q => q.Name == "read" && Equals(q.Value, true));
         Assert.Contains(data1.Qualifiers, q => q.Name == "write" && Equals(q.Value, true));
         Assert.Null(data1.DefaultValue);

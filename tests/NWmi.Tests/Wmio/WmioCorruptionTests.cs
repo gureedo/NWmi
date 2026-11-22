@@ -10,14 +10,14 @@ public class WmioCorruptionTests
         var @class = new WmioClass(
             "Sample",
             ["Base"],
-            [new WmioQualifier("Description", QualifierFlavor.PropagateToInstance, CimType.String, "a class")],
+            [new WmioQualifier("Description", QualifierFlavor.PropagateToInstance, WbemType.String, "a class")],
             [
                 new WmioProperty(
-                    "Id", CimType.Sint32, true, 0, 0,
-                    [new WmioQualifier("key", QualifierFlavor.NotOverridable, CimType.Boolean, true)],
+                    "Id", WbemType.Sint32, true, 0, 0,
+                    [new WmioQualifier("key", QualifierFlavor.NotOverridable, WbemType.Boolean, true)],
                     new NullAndDefaultFlag(false, false), 1, 0),
-                new WmioProperty("Name", CimType.String, false, 1, 1, [], new NullAndDefaultFlag(true, false), null, 0),
-                new WmioProperty("Tags", CimType.String | CimType.ArrayFlag, false, 2, 1, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Name", WbemType.String, false, 1, 1, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Tags", WbemType.String | WbemType.ArrayFlag, false, 2, 1, [], new NullAndDefaultFlag(true, false), null, 0),
             ],
             [new WmioMethod("Go", false, 1, [1, 2], [3])]);
 
@@ -31,9 +31,9 @@ public class WmioCorruptionTests
         var @class = new WmioClass(
             "Sample", [], [],
             [
-                new WmioProperty("Id", CimType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(false, false), 1, 0),
-                new WmioProperty("Name", CimType.String, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-                new WmioProperty("Tags", CimType.String | CimType.ArrayFlag, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Id", WbemType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(false, false), 1, 0),
+                new WmioProperty("Name", WbemType.String, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+                new WmioProperty("Tags", WbemType.String | WbemType.ArrayFlag, false, 2, 0, [], new NullAndDefaultFlag(true, false), null, 0),
             ],
             []);
         var instance = WmioInstance.Create(@class, new Dictionary<string, object?>
@@ -88,13 +88,13 @@ public class WmioCorruptionTests
         // blob should fail cleanly rather than overflow the stack.
         var innerClass = new WmioClass(
             "Leaf", [], [],
-            [new WmioProperty("X", CimType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+            [new WmioProperty("X", WbemType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
             []);
         var current = WmioObjectBlock.ForInstance(WmioInstance.Create(innerClass, new Dictionary<string, object?> { ["X"] = 0 }));
 
         var wrapperClass = new WmioClass(
             "Wrapper", [], [],
-            [new WmioProperty("Nested", CimType.Object, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+            [new WmioProperty("Nested", WbemType.Object, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
             []);
 
         for (var depth = 0; depth < 50; depth++)

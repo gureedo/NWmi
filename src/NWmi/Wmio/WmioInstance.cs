@@ -207,7 +207,7 @@ internal sealed class WmioInstance
     /// </summary>
     private static bool HoldsEmbeddedObject(NdTable.Entry nd, WmioProperty property, WmioReader valueTableReader)
     {
-        if (!nd.IsNull || property.Type != CimType.Object)
+        if (!nd.IsNull || property.Type != WbemType.Object)
             return false;
 
         valueTableReader.Position = (int)property.ValueTableOffset;

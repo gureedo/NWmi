@@ -104,6 +104,16 @@ await foreach (var link in wmi.GetReferencesAsync("Win32_LogicalDisk.DeviceID=\"
 Property values come back as CLR types (`uint`, `ulong`, `bool`, `string`, ...), arrays as `object?[]`, embedded
 objects as `WmiObject`, and CIM datetimes as the DMTF string the server sent.
 
+`GetProperty` and `GetProperties` also give each property's CIM type (`WmiType`) and flags (`WmiFlags`: `Key`,
+`ReadOnly`, `Required`, `NullValue`, `NotModified`, ...):
+
+```csharp
+var handle = process.GetProperty("Handle");
+Console.WriteLine($"{handle.Type} {handle.Flags}"); // String Property, Key, ReadOnly, NotModified
+```
+
+Over WinRM the type comes from the class definition the server gives, and `ReadOnly` / `Required` are not known.
+
 ### Calling methods
 
 ```csharp

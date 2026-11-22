@@ -16,7 +16,7 @@ public class WbemWCOSmartEnumClientTests
 
     private static WmioClass OneIntProperty() => new(
         "TestClass", [], [],
-        [new WmioProperty("Count", CimType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(false, false), 0, 0)], []);
+        [new WmioProperty("Count", WbemType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(false, false), 0, 0)], []);
 
     private static void WriteU32(MemoryStream stream, uint value)
     {

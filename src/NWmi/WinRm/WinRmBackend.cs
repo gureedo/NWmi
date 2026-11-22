@@ -351,7 +351,7 @@ internal sealed class WinRmBackend : IAsyncDisposable
         var outputName = output.Name.LocalName;
 
         var read = WsmanObjectReader.Read(output, null, [], _host, _namespacePath, null, Lookup);
-        return new WmiObject("__PARAMETERS", read.Properties, [], _host, _namespacePath);
+        return read.AsParameters();
 
         WsmanClassSchema? Lookup(string name) =>
             name == outputName && methodSchema is not null ? methodSchema : inner?.Invoke(name);

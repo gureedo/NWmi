@@ -10,7 +10,7 @@ public class WmiClassObjectCodecTests
         "TestClass",
         [],
         [],
-        [new WmioProperty("Name", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+        [new WmioProperty("Name", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
         []);
 
     private static WmioObjectBlock SampleInstance() =>

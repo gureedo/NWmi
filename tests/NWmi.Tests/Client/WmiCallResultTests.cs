@@ -36,7 +36,7 @@ public class WmiCallResultTests
     {
         var @class = new WmioClass(
             "NWmi_Test", [], [],
-            [new WmioProperty("Name", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
+            [new WmioProperty("Name", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
         return WmiClassObjectCodec.ToObjRefBytes(
             WmioObjectBlock.ForInstance(WmioInstance.Create(@class, new Dictionary<string, object?> { ["Name"] = "found" })));
     }
@@ -364,8 +364,8 @@ public class WmiCallResultTests
     private static readonly WmioClass Signature = new(
         "__PARAMETERS", [], [],
         [
-            new WmioProperty("Reason", CimType.Uint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-            new WmioProperty("When", CimType.DateTime, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 4),
+            new WmioProperty("Reason", WbemType.Uint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+            new WmioProperty("When", WbemType.DateTime, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 4),
         ],
         []);
 

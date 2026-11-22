@@ -322,7 +322,7 @@ public class CliAppTests
     {
         var @class = new NWmi.Wmio.WmioClass(
             "Win32_Process", [], [],
-            [new NWmi.Wmio.WmioProperty("Handle", NWmi.Wmio.CimType.String, false, 0, 0, [], new NWmi.Wmio.NullAndDefaultFlag(true, false), null, 0)], []);
+            [new NWmi.Wmio.WmioProperty("Handle", NWmi.Wmio.WbemType.String, false, 0, 0, [], new NWmi.Wmio.NullAndDefaultFlag(true, false), null, 0)], []);
         var block = NWmi.Wmio.WmioObjectBlock.ForInstance(NWmi.Wmio.WmioInstance.Create(@class, new Dictionary<string, object?> { ["Handle"] = handle }));
         return WmiClassObjectCodec.ToObjRefBytes(block);
     }

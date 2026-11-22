@@ -19,7 +19,7 @@ internal readonly record struct NullAndDefaultFlag(bool IsNull, bool IsInherited
 /// </summary>
 internal sealed record WmioProperty(
     string Name,
-    CimType Type,
+    WbemType Type,
     bool DefinedInParentClass,
     ushort DeclarationOrder,
     uint ClassOfOrigin,
@@ -28,7 +28,7 @@ internal sealed record WmioProperty(
     object? DefaultValue,
     uint ValueTableOffset)
 {
-    /// <summary>PropertyType's Inherited bit (MS-WMIO 2.2.32), OR'd with the CimType to form the 32-bit PropertyType field.</summary>
+    /// <summary>PropertyType's Inherited bit (MS-WMIO 2.2.32), OR'd with the WbemType to form the 32-bit PropertyType field.</summary>
     private const uint InheritedTypeBit = 0x4000;
 
     internal static WmioProperty Read(string name, byte[] ndTable, int propertyCount, int listIndex,
@@ -37,9 +37,9 @@ internal sealed record WmioProperty(
     {
         var info = classHeap.Resolve(propertyInfoRef);
         var propertyTypeRaw = info.ReadUInt32();
-        var type = (CimType)(propertyTypeRaw & ~InheritedTypeBit);
+        var type = (WbemType)(propertyTypeRaw & ~InheritedTypeBit);
         if (!type.BaseType().IsSupportedBaseType())
-            // Validated here, at the one place a property's CimType is ever read from untrusted data, so every
+            // Validated here, at the one place a property's WbemType is ever read from untrusted data, so every
             // other piece of code that later calls InlineValueSize() on a decoded WmioProperty.Type can assume
             // it is always one of the recognized CIM base types.
             throw new WmioFormatException(
@@ -78,7 +78,7 @@ internal sealed record WmioProperty(
     /// The inherited default as Windows copies it into the derived class's own slot and heap, which is all an instance has, since it
     /// carries no parent class (seen on a real instance; MS-WMIO does not promise it). Null if the slot holds no readable value.
     /// </summary>
-    private static object? ReadCopiedDefault(WmioReader valueTable, uint offset, CimType type, WmioHeap classHeap)
+    private static object? ReadCopiedDefault(WmioReader valueTable, uint offset, WbemType type, WmioHeap classHeap)
     {
         try
         {

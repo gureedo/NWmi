@@ -10,7 +10,7 @@ public class ObjectArrayDecoderTests
         "TestClass",
         [],
         [],
-        [new WmioProperty("Count", CimType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(false, false), 0, 0)],
+        [new WmioProperty("Count", WbemType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(false, false), 0, 0)],
         []);
 
     private static byte[] EncodeClassBody(WmioClass @class)

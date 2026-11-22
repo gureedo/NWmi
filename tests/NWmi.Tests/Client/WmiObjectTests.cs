@@ -11,10 +11,10 @@ public class WmiObjectTests
         [],
         [
             new WmioProperty(
-                "Handle", CimType.String, false, 0, 0,
-                [new WmioQualifier("key", QualifierFlavor.NotOverridable, CimType.Boolean, true)],
+                "Handle", WbemType.String, false, 0, 0,
+                [new WmioQualifier("key", QualifierFlavor.NotOverridable, WbemType.Boolean, true)],
                 new NullAndDefaultFlag(true, false), null, 0),
-            new WmioProperty("Caption", CimType.String, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+            new WmioProperty("Caption", WbemType.String, false, 1, 0, [], new NullAndDefaultFlag(true, false), null, 0),
         ],
         []);
 
@@ -103,7 +103,7 @@ public class WmiObjectTests
     public void A_class_without_keys_falls_back_to_the_class_name_as_its_relative_path()
     {
         var keylessClass = new WmioClass(
-            "__PARAMETERS", [], [], [new WmioProperty("X", CimType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
+            "__PARAMETERS", [], [], [new WmioProperty("X", WbemType.Sint32, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
         var block = WmioObjectBlock.ForInstance(WmioInstance.Create(keylessClass, new Dictionary<string, object?> { ["X"] = 1 }));
         var obj = new WmiObject(block, null, null);
 
@@ -155,18 +155,18 @@ public class WmiObjectTests
     }
 
     [Theory]
-    [InlineData("text", (ushort)CimType.String)]
-    [InlineData(true, (ushort)CimType.Boolean)]
-    [InlineData((sbyte)-1, (ushort)CimType.Sint8)]
-    [InlineData((byte)1, (ushort)CimType.Uint8)]
-    [InlineData((short)-2, (ushort)CimType.Sint16)]
-    [InlineData((ushort)2, (ushort)CimType.Uint16)]
-    [InlineData(-3, (ushort)CimType.Sint32)]
-    [InlineData(3U, (ushort)CimType.Uint32)]
-    [InlineData(-4L, (ushort)CimType.Sint64)]
-    [InlineData(4UL, (ushort)CimType.Uint64)]
-    [InlineData(1.5F, (ushort)CimType.Real32)]
-    [InlineData(2.5, (ushort)CimType.Real64)]
+    [InlineData("text", (ushort)WbemType.String)]
+    [InlineData(true, (ushort)WbemType.Boolean)]
+    [InlineData((sbyte)-1, (ushort)WbemType.Sint8)]
+    [InlineData((byte)1, (ushort)WbemType.Uint8)]
+    [InlineData((short)-2, (ushort)WbemType.Sint16)]
+    [InlineData((ushort)2, (ushort)WbemType.Uint16)]
+    [InlineData(-3, (ushort)WbemType.Sint32)]
+    [InlineData(3U, (ushort)WbemType.Uint32)]
+    [InlineData(-4L, (ushort)WbemType.Sint64)]
+    [InlineData(4UL, (ushort)WbemType.Uint64)]
+    [InlineData(1.5F, (ushort)WbemType.Real32)]
+    [InlineData(2.5, (ushort)WbemType.Real64)]
     public void A_qualifiers_CIM_type_comes_from_the_value_and_survives_encoding(object value, ushort type)
     {
         var obj = Instance("4", "x");
@@ -174,7 +174,7 @@ public class WmiObjectTests
 
         var instance = WmioObjectBlock.DecodeEncodingUnit(obj.ToInstanceBlock().EncodeEncodingUnit()).Instance!;
         var qualifier = Assert.Single(instance.PropertyQualifiers!["Caption"]);
-        Assert.Equal((CimType)type, qualifier.Type);
+        Assert.Equal((WbemType)type, qualifier.Type);
         Assert.Equal(value, qualifier.Value);
     }
 
@@ -187,9 +187,9 @@ public class WmiObjectTests
 
         var instance = WmioObjectBlock.DecodeEncodingUnit(obj.ToInstanceBlock().EncodeEncodingUnit()).Instance!;
         var set = instance.PropertyQualifiers!["Caption"].ToDictionary(q => q.Name);
-        Assert.Equal(CimType.String | CimType.ArrayFlag, set["Strings"].Type);
+        Assert.Equal(WbemType.String | WbemType.ArrayFlag, set["Strings"].Type);
         Assert.Equal(new object?[] { "a", "b" }, set["Strings"].Value);
-        Assert.Equal(CimType.Sint32 | CimType.ArrayFlag, set["Ints"].Type);
+        Assert.Equal(WbemType.Sint32 | WbemType.ArrayFlag, set["Ints"].Type);
         Assert.Equal(new object?[] { 1, 2, 3 }, set["Ints"].Value);
         Assert.Empty(instance.PropertyQualifiers["Handle"]);
     }
@@ -230,8 +230,8 @@ public class WmiObjectTests
         var withQualifiers = WmioInstance.Create(
             ProcessClass(),
             new Dictionary<string, object?> { ["Handle"] = "4" },
-            [new WmioQualifier("Provider", QualifierFlavor.None, CimType.String, "p")],
-            new Dictionary<string, IReadOnlyList<WmioQualifier>> { ["Caption"] = [new WmioQualifier("Note", QualifierFlavor.None, CimType.String, "n")] });
+            [new WmioQualifier("Provider", QualifierFlavor.None, WbemType.String, "p")],
+            new Dictionary<string, IReadOnlyList<WmioQualifier>> { ["Caption"] = [new WmioQualifier("Note", QualifierFlavor.None, WbemType.String, "n")] });
         var read = new WmiObject(WmioObjectBlock.DecodeEncodingUnit(WmioObjectBlock.ForInstance(withQualifiers).EncodeEncodingUnit()), null, null);
 
         Assert.Equal("n", read.GetPropertyQualifiers("Caption")["Note"]);
@@ -292,7 +292,7 @@ public class WmiObjectTests
             new Dictionary<string, object?> { ["handle"] = "4", ["CAPTION"] = "c" },
             propertyQualifiers: new Dictionary<string, IReadOnlyList<WmioQualifier>>
             {
-                ["caption"] = [new WmioQualifier("Q", QualifierFlavor.None, CimType.Sint32, 1)],
+                ["caption"] = [new WmioQualifier("Q", QualifierFlavor.None, WbemType.Sint32, 1)],
             });
 
         Assert.Equal("4", instance.Values["Handle"]);
@@ -328,8 +328,8 @@ public class WmiObjectTests
         [],
         [],
         [
-            new WmioProperty("Handle", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
-            new WmioProperty("Caption", CimType.String, false, 1, 0, [], new NullAndDefaultFlag(false, false), "the default", 0),
+            new WmioProperty("Handle", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0),
+            new WmioProperty("Caption", WbemType.String, false, 1, 0, [], new NullAndDefaultFlag(false, false), "the default", 0),
         ],
         []);
 }

@@ -26,6 +26,10 @@ public sealed class WmiObject
     private readonly Dictionary<string, List<WmioQualifier>>
         _propertyQualifiers = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly IReadOnlyDictionary<string, WmiType>? _types;
+    private readonly HashSet<string> _modified = new(StringComparer.OrdinalIgnoreCase);
+    private readonly bool _isInstance;
+
     private readonly WmioDecoration? _decoration;
     private readonly string? _serverHint;
     private readonly string? _namespaceHint;
@@ -44,6 +48,7 @@ public sealed class WmiObject
         }
         else
         {
+            _isInstance = true;
             _class = block.Instance!.Class;
             _values = new Dictionary<string, object?>(block.Instance!.Values, StringComparer.OrdinalIgnoreCase);
             _qualifiers.AddRange(block.Instance.Qualifiers);
@@ -56,17 +61,24 @@ public sealed class WmiObject
 
     /// <summary>
     /// An object that did not come from the binary object format, i.e. one read from a WS-Management reply, which carries
-    /// no class metadata: <paramref name="keyNames"/> are the key properties as the reply's selectors name them.
+    /// no class metadata: <paramref name="keyNames"/> are the key properties as the reply's selectors name them, and
+    /// <paramref name="types"/> the property types from the class definition, when the server gave one.
     /// </summary>
     internal WmiObject(string className, IEnumerable<KeyValuePair<string, object?>> values,
-        IReadOnlyList<string> keyNames, string? serverHint, string? namespaceHint)
+        IReadOnlyList<string> keyNames, string? serverHint, string? namespaceHint,
+        IReadOnlyDictionary<string, WmiType>? types = null)
     {
+        _isInstance = true;
+        _types = types;
         ClassName = className;
         _values = new Dictionary<string, object?>(values, StringComparer.OrdinalIgnoreCase);
         _keyNames = keyNames;
         _serverHint = serverHint;
         _namespaceHint = namespaceHint;
     }
+
+    /// <summary>This WinRM object's values and types as a method's output parameters.</summary>
+    internal WmiObject AsParameters() => new("__PARAMETERS", _values, [], _serverHint, _namespaceHint, _types);
 
     /// <summary>The class this object belongs to (<c>__CLASS</c>).</summary>
     public string ClassName => _class?.Name ?? field ?? string.Empty;
@@ -130,10 +142,63 @@ public sealed class WmiObject
                 throw new ArgumentException($"'{ClassName}' has no property named '{name}'.", nameof(name));
 
             // A datetime is a DMTF string on the wire and when read, so a DateTimeOffset or TimeSpan becomes one here.
-            _values[name] = property?.Type.BaseType() == CimType.DateTime
+            _values[name] = property?.Type.BaseType() == WbemType.DateTime
                 ? WmiConnection.CoerceValue(value, property.Type)
                 : value;
+            _modified.Add(name);
         }
+    }
+
+    /// <summary>One ordinary property with its CIM type and flags; the name matches case-insensitively.</summary>
+    /// <exception cref="KeyNotFoundException">Not a property of <see cref="ClassName"/> (system properties such as <c>__CLASS</c> are not).</exception>
+    public WmiProperty GetProperty(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var key = _values.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase))
+                  ?? throw new KeyNotFoundException($"'{ClassName}' has no property named '{name}'.");
+        return Describe(key);
+    }
+
+    /// <summary>Every ordinary property with its CIM type and flags, in the order of <see cref="Properties"/>.</summary>
+    public IReadOnlyList<WmiProperty> GetProperties() => [.. _values.Keys.Select(Describe)];
+
+    private WmiProperty Describe(string name)
+    {
+        var value = WrapEmbedded(_values[name]);
+        var isParameter = string.Equals(ClassName, "__PARAMETERS", StringComparison.OrdinalIgnoreCase);
+        WmiType type;
+        WmiFlags flags;
+        var declared = _class?.FindProperty(name);
+        if (declared is not null)
+        {
+            name = declared.Name;
+            type = WmiTypeMapping.ToWmiType(declared.Type);
+            flags = WmiTypeMapping.DeclarationFlags(declared.Qualifiers, isParameter);
+        }
+        else
+        {
+            type = _types?.GetValueOrDefault(name) ?? WmiType.Unknown;
+            // A CIM-XML class definition types an embedded object as a string (its EmbeddedInstance qualifier, which
+            // says otherwise, is not read), and an untyped one has no type at all: the value tells.
+            if (type is WmiType.Unknown or WmiType.String or WmiType.StringArray)
+                type = value switch
+                {
+                    WmiObject => WmiType.Instance,
+                    object?[] { Length: > 0 } array when array.All(e => e is WmiObject) => WmiType.InstanceArray,
+                    _ => type,
+                };
+
+            flags = isParameter ? WmiFlags.Parameter : WmiFlags.Property;
+            if (_keyNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                flags |= WmiFlags.Key;
+        }
+
+        if (value is null)
+            flags |= WmiFlags.NullValue;
+        if (_isInstance && !_modified.Contains(name))
+            flags |= WmiFlags.NotModified;
+
+        return new WmiProperty(name, value, type, flags);
     }
 
     /// <summary>
@@ -203,7 +268,7 @@ public sealed class WmiObject
         RequireClass().FindProperty(propertyName)
         ?? throw new ArgumentException($"'{ClassName}' has no property named '{propertyName}'.", nameof(propertyName));
 
-    private static (CimType Type, object Value) InferQualifierValue(object? value)
+    private static (WbemType Type, object Value) InferQualifierValue(object? value)
     {
         if (value is null)
             throw new ArgumentException("A qualifier value cannot be null; remove the qualifier instead.",
@@ -230,18 +295,18 @@ public sealed class WmiObject
 
         var type = value switch
         {
-            string => CimType.String,
-            bool => CimType.Boolean,
-            sbyte => CimType.Sint8,
-            byte => CimType.Uint8,
-            short => CimType.Sint16,
-            ushort => CimType.Uint16,
-            int => CimType.Sint32,
-            uint => CimType.Uint32,
-            long => CimType.Sint64,
-            ulong => CimType.Uint64,
-            float => CimType.Real32,
-            double => CimType.Real64,
+            string => WbemType.String,
+            bool => WbemType.Boolean,
+            sbyte => WbemType.Sint8,
+            byte => WbemType.Uint8,
+            short => WbemType.Sint16,
+            ushort => WbemType.Uint16,
+            int => WbemType.Sint32,
+            uint => WbemType.Uint32,
+            long => WbemType.Sint64,
+            ulong => WbemType.Uint64,
+            float => WbemType.Real32,
+            double => WbemType.Real64,
             _ => throw new ArgumentException($"A qualifier value of type {value.GetType().Name} is not supported.",
                 nameof(value)),
         };

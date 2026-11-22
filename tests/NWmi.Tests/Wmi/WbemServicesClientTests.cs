@@ -81,7 +81,7 @@ public class WbemServicesClientTests
         {
             var @class = new WmioClass(
                 "Win32_OperatingSystem", [], [],
-                [new WmioProperty("Caption", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
+                [new WmioProperty("Caption", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
             var block = WmioObjectBlock.ForInstance(WmioInstance.Create(@class, new Dictionary<string, object?> { ["Caption"] = "Test OS" }));
             var objRef = WmiClassObjectCodec.ToObjRefBytes(block);
 

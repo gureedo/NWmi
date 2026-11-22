@@ -20,7 +20,7 @@ public class WmiCallContextTests
 
     private static readonly WmioClass TestClass = new(
         "NWmi_Test", [], [],
-        [new WmioProperty("Name", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
+        [new WmioProperty("Name", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)],
         []);
 
     private static readonly byte[] Arch64 = WmiContext.Empty.SetInt32("__ProviderArchitecture", 64).ToBufferBytes();

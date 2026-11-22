@@ -5,7 +5,7 @@ namespace NWmi.Tests.Wmio;
 
 public class NdTableDeclarationOrderTests
 {
-    private static WmioProperty Property(string name, ushort declarationOrder, CimType type = CimType.Uint32) =>
+    private static WmioProperty Property(string name, ushort declarationOrder, WbemType type = WbemType.Uint32) =>
         new(name, type, false, declarationOrder, 0, [], new NullAndDefaultFlag(true, false), null, 0);
 
     [Fact]

@@ -4,7 +4,7 @@ namespace NWmi.Wmio;
 /// The CIM type system (MS-WMIO 2.2.82): a 16-bit base type, optionally combined with the array flag.
 /// Values match the base types exactly; an array of a base type is that value OR'd with <see cref="ArrayFlag"/>.
 /// </summary>
-internal enum CimType : ushort
+internal enum WbemType : ushort
 {
     Sint8 = 16,
     Uint8 = 17,
@@ -27,19 +27,19 @@ internal enum CimType : ushort
     ArrayFlag = 0x2000,
 }
 
-internal static class CimTypeExtensions
+internal static class WbemTypeExtensions
 {
-    extension(CimType type)
+    extension(WbemType type)
     {
-        public bool IsArray() => (type & CimType.ArrayFlag) != 0;
-        public CimType BaseType() => type & ~CimType.ArrayFlag;
+        public bool IsArray() => (type & WbemType.ArrayFlag) != 0;
+        public WbemType BaseType() => type & ~WbemType.ArrayFlag;
 
-        public CimType AsArray()
+        public WbemType AsArray()
         {
             if (type.IsArray())
                 throw new ArgumentException($"{type} is already an array type.", nameof(type));
 
-            return type | CimType.ArrayFlag;
+            return type | WbemType.ArrayFlag;
         }
 
         /// <summary>
@@ -54,11 +54,11 @@ internal static class CimTypeExtensions
 
             return type.BaseType() switch
             {
-                CimType.Sint8 or CimType.Uint8 => 1,
-                CimType.Sint16 or CimType.Uint16 or CimType.Char16 or CimType.Boolean => 2,
-                CimType.Sint32 or CimType.Uint32 or CimType.Real32 => 4,
-                CimType.Sint64 or CimType.Uint64 or CimType.Real64 => 8,
-                CimType.String or CimType.DateTime or CimType.Reference or CimType.Object => 4,
+                WbemType.Sint8 or WbemType.Uint8 => 1,
+                WbemType.Sint16 or WbemType.Uint16 or WbemType.Char16 or WbemType.Boolean => 2,
+                WbemType.Sint32 or WbemType.Uint32 or WbemType.Real32 => 4,
+                WbemType.Sint64 or WbemType.Uint64 or WbemType.Real64 => 8,
+                WbemType.String or WbemType.DateTime or WbemType.Reference or WbemType.Object => 4,
                 _ => throw new NotSupportedException($"Unknown CIM base type {type}."),
             };
         }

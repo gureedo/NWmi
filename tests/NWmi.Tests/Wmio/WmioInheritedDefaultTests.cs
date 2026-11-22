@@ -8,7 +8,7 @@ public class WmioInheritedDefaultTests
 
     private static WmioClass WithProperty(string name, NullAndDefaultFlag flag, object? value, bool inherited) => new(
         name, inherited ? ["Base"] : [], [],
-        [new WmioProperty("Prop", CimType.Uint32, inherited, 0, 0, [], flag, value, 0)], []);
+        [new WmioProperty("Prop", WbemType.Uint32, inherited, 0, 0, [], flag, value, 0)], []);
 
     private static WmioClass Decode(WmioClass parent, WmioClass current)
     {

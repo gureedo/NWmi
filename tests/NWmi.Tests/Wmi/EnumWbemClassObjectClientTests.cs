@@ -17,7 +17,7 @@ public class EnumWbemClassObjectClientTests
     private static byte[] SampleObjectRef(string name)
     {
         var @class = new WmioClass(
-            "TestClass", [], [], [new WmioProperty("Name", CimType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
+            "TestClass", [], [], [new WmioProperty("Name", WbemType.String, false, 0, 0, [], new NullAndDefaultFlag(true, false), null, 0)], []);
         var block = WmioObjectBlock.ForInstance(WmioInstance.Create(@class, new Dictionary<string, object?> { ["Name"] = name }));
         return WmiClassObjectCodec.ToObjRefBytes(block);
     }
